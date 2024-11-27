@@ -1,12 +1,12 @@
 [submodule "external/parlaylib"]
 	path = external/parlaylib
 	url = https://github.com/cmuparlay/parlaylib.git
-[submodule "external/streamvbyte"]
-	path = external/streamvbyte
-	url = https://github.com/lemire/streamvbyte.git
 [submodule "external/hopscotch-map"]
 	path = external/hopscotch-map
 	url = https://github.com/Tessil/hopscotch-map.git
 [submodule "external/kseqpp"]
 	path = external/kseqpp
 	url = https://github.com/cartoonist/kseqpp.git
+[submodule "external/libvbyte"]
+	path = external/libvbyte
+	url = https://github.com/cruppstahl/libvbyte.git

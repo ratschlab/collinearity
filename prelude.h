@@ -78,9 +78,6 @@ typedef uint8_t u1;
 typedef uint32_t u4;
 typedef uint64_t u8;
 
-typedef u4 KeyT;
-typedef u8 ValT;
-
 /** memory allocation/deallcoation utils */
 
 #define KiB <<10u

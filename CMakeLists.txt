@@ -4,7 +4,7 @@ project(Collinearity)
 set(CMAKE_CXX_STANDARD 17)
 
 include_directories(external/parlaylib/include)
-include_directories(external/streamvbyte/include)
+include_directories(external/libvbyte)
 include_directories(external/hopscotch-map/include)
 include_directories(external/kseqpp/include)
 
@@ -14,8 +14,11 @@ add_subdirectory(external/kseqpp)
 add_executable(Collinearity main.cpp
         prelude.h
         index_refs.cpp
-        collinearity.h)
+        collinearity.h
+        external/libvbyte/varintdecode.c
+        external/libvbyte/vbyte.cc
+)
 
-target_compile_options(Collinearity PRIVATE -fpermissive)
+target_compile_options(Collinearity PRIVATE -fpermissive -mavx)
 
-target_link_libraries(Collinearity streamvbyte z)
+target_link_libraries(Collinearity z)
