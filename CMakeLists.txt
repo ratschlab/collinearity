@@ -17,6 +17,8 @@ add_executable(Collinearity main.cpp
         collinearity.h
         external/libvbyte/varintdecode.c
         external/libvbyte/vbyte.cc
+        compressed_array.h
+        parlay_utils.h
 )
 
 target_compile_options(Collinearity PRIVATE -fpermissive -mavx)

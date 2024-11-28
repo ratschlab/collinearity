@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <cassert>
+#include <string>
 
 #define RED   "\x1B[31m"
 #define GRN   "\x1B[32m"
@@ -59,22 +60,18 @@ static char *time_str(){
 } while(0)
 
 #define warn(fmt, ...) do { \
-    fprintf(stderr, "[%s]" YEL "ERROR: " fmt RESET " at %s:%i\n",       \
+    fprintf(stderr, "[%s]" YEL "WARN: " fmt RESET " at %s:%i\n",       \
             time_str(), ##__VA_ARGS__, __FILE__, __LINE__);     \
 } while(0)
 
 #define alignup(n, a) (((n) + (a)-1) & ~((a)-1))
 
 #define expect(expression) if (!(expression)) error("Expected " #expression "")
-
-#ifdef SANITY_CHECK
-#define verify(expression) if (!(expression)) error("Expected " #expression "")
-#else
-#define verify(expression)
-#endif
+#define verify(expression) if (SANITY_CHECKS && !(expression)) error("Expected " #expression "")
 
 /// aliases and typedefs
 typedef uint8_t u1;
+typedef uint16_t u2;
 typedef uint32_t u4;
 typedef uint64_t u8;
 
