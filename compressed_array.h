@@ -38,13 +38,13 @@ struct compressed_array_t {
 
             if constexpr (std::is_same<T, u4>::value) {
                 if constexpr (sorted) {
-                    nc1 = vbyte_compress_sorted32(arr, (u1*)data, n, 0);
+                    nc1 = vbyte_compress_sorted32(arr, (u1*)data, 0, n);
                 } else {
                     nc1 = vbyte_compress_unsorted32(arr, (u1*)data, n);
                 }
             } else if constexpr (std::is_same<T, u8>::value) {
                 if constexpr (sorted) {
-                    nc1 = vbyte_compress_sorted64(arr, (u1*)data, n, 0);
+                    nc1 = vbyte_compress_sorted64(arr, (u1*)data, 0, n);
                 } else {
                     nc1 = vbyte_compress_unsorted64(arr, (u1*)data, n);
                 }
@@ -62,8 +62,7 @@ struct compressed_array_t {
         }
     }
 
-    void decompress(T* out, const size_t size) {
-        expect(size >= n);
+    void decompress(T* out) {
         if (!compressed) memcpy(out, data, nc);
         else {
             if constexpr (std::is_same<T, u4>::value) {
@@ -86,6 +85,48 @@ struct compressed_array_t {
 
     ~compressed_array_t() {
         free(data);
+    }
+
+    const T& operator[](size_t i) const {
+        if (i < n) {
+            if constexpr (std::is_same<T, u4>::value) {
+                if constexpr (sorted) {
+                    return vbyte_select_sorted32((u1*)data, nc, 0, i);
+                } else {
+                    return vbyte_select_unsorted32((u1*)data, nc, i);
+                }
+            } else if constexpr (std::is_same<T, u8>::value) {
+                if constexpr (sorted) {
+                    return vbyte_select_sorted64((u1*)data, nc, 0, i);
+                } else {
+                    return vbyte_select_unsorted64((u1*)data, nc, i);
+                }
+            } else {
+                error("Type has to be either u4 or u8.");
+            }
+        }
+        else error("Array index out of bounds.");
+    }
+
+    T operator[](size_t i) {
+        if (i < n) {
+            if constexpr (std::is_same<T, u4>::value) {
+                if constexpr (sorted) {
+                    return vbyte_select_sorted32((u1*)data, nc, 0, i);
+                } else {
+                    return vbyte_select_unsorted32((u1*)data, nc, i);
+                }
+            } else if constexpr (std::is_same<T, u8>::value) {
+                if constexpr (sorted) {
+                    return vbyte_select_sorted64((u1*)data, nc, 0, i);
+                } else {
+                    return vbyte_select_unsorted64((u1*)data, nc, i);
+                }
+            } else {
+                error("Type has to be either u4 or u8.");
+            }
+        }
+        else error("Array index out of bounds.");
     }
 };
 

@@ -95,4 +95,26 @@ void sort_by_key(T1* a, T2 *b, T3 *c, size_t n) {
     p_scatter(c, n, index.data(), c);
 }
 
+template<typename T>
+static size_t upper_bound(const T *arr, size_t start, size_t end, const T& key) {
+    size_t i;
+    while (start < end) {
+        i = (start + end) / 2;
+        if (key < arr[i]) end = i;
+        else start = i + 1;
+    }
+    return start;
+}
+
+template<typename T>
+static size_t lower_bound(const T *arr, size_t start, size_t end, const T& key) {
+    size_t i;
+    while (start < end) {
+        i = (start + end) / 2;
+        if (key > arr[i]) start = i + 1;
+        else end = i;
+    }
+    return start;
+}
+
 #endif //COLLINEARITY_PARLAY_UTILS_H

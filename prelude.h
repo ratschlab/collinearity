@@ -81,4 +81,9 @@ typedef uint64_t u8;
 #define MiB <<20u
 #define GiB <<30u
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+#define alignup(n, a) (((n) + (a)-1) & ~((a)-1))
+
 #endif //COLLINEARITY_PRELUDE_H

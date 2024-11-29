@@ -11,7 +11,7 @@ include_directories(external/kseqpp/include)
 add_subdirectory(external/streamvbyte)
 add_subdirectory(external/kseqpp)
 
-add_executable(Collinearity main.cpp
+add_library(collinear STATIC
         prelude.h
         index_refs.cpp
         collinearity.h
@@ -19,8 +19,20 @@ add_executable(Collinearity main.cpp
         external/libvbyte/vbyte.cc
         compressed_array.h
         parlay_utils.h
-)
+        cqueue.h
+        cqutils.h)
 
-target_compile_options(Collinearity PRIVATE -fpermissive -mavx)
+add_executable(Collinearity main.cpp)
+add_executable(tests
+        tests/testmain.cpp
+        tests/test_compressed_array.cpp
+        tests/test_cqueue.cpp
+        tests/test_cqutils.cpp
+        tests/tests.h)
 
-target_link_libraries(Collinearity z)
+target_compile_options(collinear PRIVATE -fpermissive -mavx)
+target_compile_options(Collinearity PRIVATE -fpermissive)
+target_link_libraries(Collinearity collinear z)
+
+target_compile_options(tests PRIVATE -fpermissive)
+target_link_libraries(tests collinear z)
