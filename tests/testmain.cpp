@@ -6,4 +6,6 @@
 
 int main(int argc, char *argv[]) {
     test_compressed_array();
+    test_cqueue();
+//    test_cqutils();
 }

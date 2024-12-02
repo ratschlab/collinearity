@@ -11,6 +11,7 @@
 #include "parlay_utils.h"
 
 #define SANITY_CHECKS 1
+#define BLOCK_SZ (32 MiB)
 
 using namespace klibpp;
 
@@ -30,25 +31,100 @@ parlay::sequence<u4> create_kmers(const std::string& sequence, int k, int sigma)
 
 struct kmer_chunk_t {
     const std::string name;
-    compressed_array_t<u4,false> kmers;
+    compressed_array_t<u4> kmers;
     kmer_chunk_t(std::string &name, u4 *data, size_t length): name(name), kmers(data, length) {}
     [[nodiscard]] size_t size() const { return kmers.n; }
     [[nodiscard]] size_t compressed_size() const {return kmers.nc; }
 };
 
 struct tuple_chunk_t {
-    compressed_array_t<u4, true> keys;
-    compressed_array_t<u4, false> rids;
-    compressed_array_t<u4, false> poss;
-    tuple_chunk_t(u4 *keys, u4 *rids, u4 *poss, size_t n): keys(keys, n), rids(rids, n), poss(poss, n) {}
+    compressed_array_t<u4> keys;
+    compressed_array_t<u4> rids;
+    compressed_array_t<u4> poss;
+    parlay::sequence<u4> tmp_keys, tmp_rids, tmp_poss;
+    const size_t n;
+
+    tuple_chunk_t(u4 *keys, u4 *rids, u4 *poss, size_t n): n(n), keys(keys, n), rids(rids, n), poss(poss, n) {}
+
     inline void summarize() const {
         size_t csz = keys.nc + rids.nc + poss.nc;
-        info("Stored %zd tuples in %.2f GB (compression ratio %.2f%%)", keys.n, csz*1.0/(1 GiB), csz * 100.0 / (keys.n *
+        info("Stored %zd tuples in %.2f GB (compression ratio %.2f%%)", n, csz*1.0/(1 GiB), csz * 100.0 / (n *
                 sizeof(u4)));
+    }
+
+    void decompress(u4 *keyout, u4 *ridout, u4 *posout) {
+        keys.decompress(keyout);
+        rids.decompress(ridout);
+        poss.decompress(posout);
+    }
+
+    void decompress(parlay::sequence<u4> &keyout, parlay::sequence<u4> &ridout, parlay::sequence<u4> &posout) {
+        keyout.resize(n);
+        ridout.resize(n);
+        posout.resize(n);
+        decompress(keyout.data(), ridout.data(), posout.data());
     }
 };
 
-#define BLOCK_SZ (32 MiB)
+struct sorted_tuples_t {
+    std::list<tuple_chunk_t> tuple_chunks;
+    parlay::sequence<u4> keys, rids, poss;
+    u4 last_key;
+    size_t start = 0, end = 0;
+
+    explicit sorted_tuples_t(tuple_chunk_t &&tuple_chunk) { tuple_chunks.push_back(tuple_chunk); }
+    explicit sorted_tuples_t(std::list<tuple_chunk_t> &tuple_chunks) {
+        while (!tuple_chunks.empty()) {
+            auto &&tuples = tuple_chunks.front();
+            this->tuple_chunks.push_back(tuples);
+            tuple_chunks.pop_front();
+        }
+    }
+
+    size_t stage() {
+        if (start == end) {
+            if (tuple_chunks.empty()) return 0;
+            auto &tuples = tuple_chunks.front();
+            tuples.decompress(keys, rids, poss);
+            end = keys.size();
+            tuple_chunks.pop_front();
+            last_key = keys[end-1];
+        }
+        return end - start;
+    }
+    inline size_t consume(size_t n) {
+        n = MIN(n, (end-start));
+        start += n;
+        return n;
+    }
+    inline void rewind(size_t n) { start -= n; }
+};
+
+static void merge_two_sorted_tuples(sorted_tuples_t &a, sorted_tuples_t &b) {
+    size_t na = a.stage(), nb = b.stage();
+    while (na && nb) {
+        // find boundary
+        u4 min_key = MIN(a.last_key, b.last_key);
+        size_t endA = lower_bound(a.keys.data(), a.start, a.end, min_key);
+        size_t endB = lower_bound(b.keys.data(), b.start, b.end, min_key);
+
+    }
+}
+
+static void merge_many_sorted_tuples(std::list<tuple_chunk_t> &sorted_tuple_chunks) {
+    std::list<sorted_tuples_t> sorted_lists;
+    while (!sorted_tuple_chunks.empty()) {
+        sorted_lists.emplace_back(sorted_tuple_chunks);
+        sorted_tuple_chunks.pop_front();
+    }
+    while (sorted_lists.size() > 1) {
+        auto &&A = sorted_lists.front();
+        auto &&B = sorted_lists.front();
+        sorted_lists.pop_front();
+        sorted_lists.pop_front();
+
+    }
+}
 
 static void sort_tuples(parlay::sequence<u4> &keys, parlay::sequence<u4> &rids, parlay::sequence<u4> &poss, size_t n,
                         std::list<tuple_chunk_t> &sorted_tuple_chunks) {
@@ -100,7 +176,7 @@ std::list<tuple_chunk_t> sort_tuple_blocks(std::list<kmer_chunk_t> &kmer_chunks)
             if (offset == 0) {
                 max_buf_sz = kmers.n;
                 keys.resize(max_buf_sz);
-                kmers.decompress(keys.data(), keys.size());
+                kmers.decompress(keys.data());
                 p_fill(rids.data(), kmers.n, ref_id);
                 p_seq(poss.data(), kmers.n);
                 offset = kmers.n;
@@ -110,7 +186,7 @@ std::list<tuple_chunk_t> sort_tuple_blocks(std::list<kmer_chunk_t> &kmer_chunks)
             offset = 0;
             remaining = max_buf_sz;
         }
-        kmers.decompress(keys.data() + offset, remaining);
+        kmers.decompress(keys.data() + offset);
         remaining -= kmers.n;
         offset += kmers.n;
         kmer_chunks.pop_front();
