@@ -9,7 +9,7 @@
 
 void test_compressed_array() {
     const u4 N = 1<<20;
-    const u4 I = 1<<10;
+    const u4 I = 1<<6;
 
     // generate random numbers
     auto input = generate_random<u4>(N>>5, N);

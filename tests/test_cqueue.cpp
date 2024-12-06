@@ -64,4 +64,36 @@ void test_cqueue() {
     check(cq.size() == 0, "size after all popped");
     check(parlay::equal(input, buffer), "push/pop in chunks");
 
+    // push and pop exactly blocksize
+    remaining = N, offset = 0;
+    while (remaining) {
+        size_t n = MIN((1 MiB), remaining);
+        cq.push_back(input.data() + offset, n);
+        remaining -= n;
+        offset += n;
+    }
+    check(cq.size() == N, "size after push");
+
+    // check access
+    rand_idx = generate_random<u4>(N, 1024);
+    parlay::for_each(diff, [&](size_t i){
+        diff[i] = input[rand_idx[i]] - cq[rand_idx[i]];
+    });
+    check(parlay::reduce(diff)==0, "Select unsorted");
+
+    // pop one by one
+    offset = 0;
+    num_popped = 0;
+    while (true) {
+        size_t n = 1 MiB;
+        size_t np = cq.pop_front(buffer.data() + offset, n);
+        if (!np) break;
+        num_popped += np;
+        offset += np;
+    }
+    check(num_popped == N, "number of items popped");
+    check(cq.size() == 0, "size after all popped");
+    check(parlay::equal(input, buffer), "push/pop in chunks");
+
+
 }

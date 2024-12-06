@@ -12,22 +12,24 @@
 template <typename T>
 struct CQueue {
     struct buffer_t {
-        T *data;
+        std::vector<T> data;
         const size_t alloc;
         size_t start, end;
+
         buffer_t(const buffer_t&) = delete;
-        explicit buffer_t(size_t size): data(new T[size]), start(0), end(0), alloc(size) {}
-        buffer_t(buffer_t &&other) noexcept : data(other.data), start(other.start), end(other.end), alloc(other.alloc) {}
-        ~buffer_t() { delete [] data; data = nullptr; }
+        buffer_t& operator = (const buffer_t&) = delete;
+        explicit buffer_t(size_t size): data(std::move(std::vector<T>(size))), start(0), end(0), alloc(size) {}
+        buffer_t(buffer_t &&other) noexcept : data(std::move(other.data)), start(other.start), end(other.end), alloc(other.alloc) {}
+
         inline size_t write_to(T* src, size_t n_elements) {
             size_t n = MIN(writeable_size(), n_elements);
-            memcpy(data + end, src, n * sizeof(T));
+            memcpy(data.data() + end, src, n * sizeof(T));
             end += n;
             return n;
         }
         inline size_t read_from(T* dst, size_t n_elements) {
             size_t n = MIN(end - start, n_elements);
-            memcpy(dst, data + start, n * sizeof(T));
+            memcpy(dst, data.data() + start, n * sizeof(T));
             start += n;
             if (!can_read_from()) reset();
             return n;
@@ -47,7 +49,8 @@ private:
 public:
     inline size_t size() { return _size; }
     const size_t CQ_MAXCOUNT;
-    CQueue(const CQueue&) = delete;
+    CQueue(const CQueue<T>&) = delete;
+    CQueue<T>& operator = (const CQueue<T>&) = delete;
     CQueue(CQueue<T> &&other) noexcept :
         CQ_MAXCOUNT(other.CQ_MAXCOUNT), _size(other._size), sorted(other.sorted), rb(std::move(other.rb)), wb(std::move(other.wb))  {
         blocks = std::move(other.blocks);
@@ -79,7 +82,7 @@ public:
         size_t n_remaining = n_elements;
         while (n_remaining) {
             if (!wb.can_write_to()) {
-                blocks.emplace_back(wb.data, wb.end, sorted);
+                blocks.emplace_back(wb.data.data(), wb.end, sorted);
                 expect(blocks.back().n == CQ_MAXCOUNT);
                 wb.reset();
             }
@@ -101,7 +104,7 @@ public:
                 dst += n, remaining -= n, _size -= n;
             } else if (!blocks.empty()) {   // I have consumed the read buffer, decompress some more
                 auto &block = blocks.front();
-                block.decompress(rb.data);
+                block.decompress(rb.data.data());
                 rb.end = CQ_MAXCOUNT;
                 blocks.pop_front();
             } else if (wb.can_read_from()) {    // consumed all compressed blocks. process my last uncompressed write block if there
