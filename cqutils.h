@@ -247,10 +247,12 @@ static void cq_count_unique(CQueue<Key> &keys, const size_t M, void* d_buf, CQue
     cq_get_partitions(keys, M, partition_sizes);
     auto d_keys_in = (Key*)d_buf;
     auto d_keys_out =d_keys_in + M;
-    auto d_counts = (u4*)(d_keys_in + M);
+    auto d_counts = (u4*)(d_keys_out + M);
     for (auto np : partition_sizes) {
         keys.pop_front(d_keys_in, np);
-        auto histogram = parlay::histogram_by_key(parlay::slice(d_keys_in, d_keys_in + np));
+        auto key_slice = parlay::slice(d_keys_in, d_keys_in + np);
+        auto histogram = parlay::histogram_by_key(key_slice);
+        parlay::sort_inplace(histogram);
         parlay::for_each(parlay::iota(histogram.size()), [&](size_t i){
             d_keys_out[i] = histogram[i].first;
             d_counts[i] = histogram[i].second;
