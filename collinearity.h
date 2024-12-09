@@ -13,6 +13,6 @@
  * @param k k-mer size
  * @param sigma alphabet size
  */
-void process_fasta(const char* fasta_filename, int k, int sigma);
+void * process_fasta(const char* fasta_filename, int k, int sigma);
 
 #endif //COLLINEARITY_COLLINEARITY_H

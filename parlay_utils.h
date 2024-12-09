@@ -20,7 +20,7 @@
  * @param value value to fill with
  */
 template <typename T>
-void p_fill(T *arr, size_t count, const T& value) {
+static inline void p_fill(T *arr, size_t count, const T& value) {
     parlay::parallel_for(0, count, [&](size_t i){
         arr[i] = value;
     });
@@ -35,7 +35,7 @@ void p_fill(T *arr, size_t count, const T& value) {
  * @param step step of sequence
  */
 template <typename T>
-void p_seq(T *arr, size_t count, const T& start=0, const T& step=1) {
+static inline void p_seq(T *arr, size_t count, const T& start=0, const T& step=1) {
     parlay::parallel_for(0, count, [&](size_t i){
         arr[i] = start + i*step;
     });
@@ -51,7 +51,7 @@ void p_seq(T *arr, size_t count, const T& start=0, const T& step=1) {
  * @param out the output array. can be same as in but otherwise should not overlap with it
  */
 template <typename T, typename I>
-void p_scatter(T *in, size_t n, I *index, T *out) {
+static inline void p_scatter(T *in, size_t n, I *index, T *out) {
     parlay::sequence<T> tmp;
     bool in_place = (in == out);
     if (in_place) {
@@ -71,10 +71,15 @@ void p_scatter(T *in, size_t n, I *index, T *out) {
  * @param n length of the input arrays
  */
 template <typename T1, typename T2>
-void sort_by_key(T1* a, T2 *b, size_t n) {
+static inline void sort_by_key(T1* a, T2 *b, size_t n) {
     auto index = parlay::rank(parlay::slice(a, a + n));
     p_scatter(a, n, index.data(), a);
     p_scatter(b, n, index.data(), b);
+}
+
+template <typename T>
+static inline bool is_sorted(T *a, size_t n) {
+    return parlay::is_sorted(parlay::slice(a, a + n));
 }
 
 /**
@@ -88,7 +93,7 @@ void sort_by_key(T1* a, T2 *b, size_t n) {
  * @param n size of the unput arrays
  */
 template <typename T1, typename T2, typename T3>
-void sort_by_key(T1* a, T2 *b, T3 *c, size_t n) {
+static inline void sort_by_key(T1* a, T2 *b, T3 *c, size_t n) {
     auto index = parlay::rank(parlay::slice(a, a + n));
     p_scatter(a, n, index.data(), a);
     p_scatter(b, n, index.data(), b);
@@ -96,7 +101,7 @@ void sort_by_key(T1* a, T2 *b, T3 *c, size_t n) {
 }
 
 template<typename T>
-static size_t upper_bound(const T *arr, size_t start, size_t end, const T& key) {
+static inline  size_t upper_bound(const T *arr, size_t start, size_t end, const T& key) {
     size_t i;
     while (start < end) {
         i = (start + end) / 2;
@@ -107,7 +112,7 @@ static size_t upper_bound(const T *arr, size_t start, size_t end, const T& key) 
 }
 
 template<typename T>
-static size_t lower_bound(const T *arr, size_t start, size_t end, const T& key) {
+static inline  size_t lower_bound(const T *arr, size_t start, size_t end, const T& key) {
     size_t i;
     while (start < end) {
         i = (start + end) / 2;

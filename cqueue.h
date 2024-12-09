@@ -43,10 +43,11 @@ struct CQueue {
 private:
     size_t _size;
     buffer_t rb, wb;
-    const bool sorted;
+    bool sorted;
     std::deque<compressed_array_t<T>> blocks;
 
 public:
+    inline void set_sorted(bool is_sorted) { sorted = is_sorted; }
     inline size_t size() { return _size; }
     const size_t CQ_MAXCOUNT;
     CQueue(const CQueue<T>&) = delete;
@@ -58,16 +59,9 @@ public:
     explicit CQueue(size_t blocksize = (32 MiB), bool sorted=false) :
         CQ_MAXCOUNT(blocksize), _size(0), rb(buffer_t(blocksize)), wb(buffer_t(blocksize)), sorted(sorted) {}
 
-    ~CQueue() {
-        expect(blocks.empty());
-    }
 
     void clear() {
-        while (!blocks.empty()) {
-            auto &block = blocks.front();
-            block.count = 0;
-            blocks.pop_front();
-        }
+        blocks.clear();
         rb.reset(), wb.reset();
         _size = 0;
     }

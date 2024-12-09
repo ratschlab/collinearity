@@ -22,7 +22,8 @@ add_library(collinear STATIC
         cqueue.h
         cqutils.h)
 
-add_executable(Collinearity main.cpp)
+add_executable(Collinearity main.cpp
+        query.c)
 add_executable(tests
         tests/testmain.cpp
         tests/test_compressed_array.cpp

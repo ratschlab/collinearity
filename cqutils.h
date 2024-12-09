@@ -233,36 +233,34 @@ static void cq_sort_by_key(CQueue<Key> &keys, CQueue<Value> &values, const size_
         sorted.pop();
         auto kv_pair_right = std::move(sorted.front());
         sorted.pop();
+        keys.set_sorted(true);
+        values.set_sorted(false);
         cq_merge_by_key(kv_pair_left.first, kv_pair_left.second, kv_pair_right.first, kv_pair_right.second, M, d_buf, keys, values);
         expect(keys.size() == N);
         expect(values.size() == N);
     }
 }
 
-//template <typename Key>
-//static void cq_count_unique(CQueue<Key, true> *keys, const size_t M, void* d_buf, CQueue<u4, false> *counts) {
-//    // todo - implement
-//
-//    std::vector<size_t> partition_sizes;
-//    cq_get_partitions(*keys, M/2, partition_sizes);
-//    auto d_keys_in = (Key*)d_buf;
-//    auto d_keys_out =d_keys_in + M/2;
-//    auto d_counts = (u4*)(d_keys_in + M);
-//
-//    size_t off = 0;
-//    thrust::equal_to<Key> binary_pred;
-//    thrust::plus<u4> binary_op;
-//    for (auto np : partition_sizes) {
-//        keys->copyTo(d_keys_in, off, np);
-//        auto new_end = thrust::reduce_by_key(thrust::device, d_keys_in, d_keys_in + np,
-//                                             thrust::make_constant_iterator(1), d_keys_out, d_counts,
-//                                             binary_pred, binary_op);
-//        size_t n1 = new_end.first - d_keys_out;
-//        counts->push_back(d_counts, n1);
-//        off += np;
-//    }
-//}
-//
+template <typename Key>
+static void cq_count_unique(CQueue<Key> &keys, const size_t M, void* d_buf, CQueue<Key> &uniqkeys, CQueue<u4> &counts) {
+    std::vector<size_t> partition_sizes;
+    cq_get_partitions(keys, M, partition_sizes);
+    auto d_keys_in = (Key*)d_buf;
+    auto d_keys_out =d_keys_in + M;
+    auto d_counts = (u4*)(d_keys_in + M);
+    for (auto np : partition_sizes) {
+        keys.pop_front(d_keys_in, np);
+        auto histogram = parlay::histogram_by_key(parlay::slice(d_keys_in, d_keys_in + np));
+        parlay::for_each(parlay::iota(histogram.size()), [&](size_t i){
+            d_keys_out[i] = histogram[i].first;
+            d_counts[i] = histogram[i].second;
+        });
+        uniqkeys.push_back(d_keys_out, histogram.size());
+        counts.push_back(d_counts, histogram.size());
+    }
+    expect(keys.size() == 0);
+}
+
 //template <typename Key, typename Value>
 //static void cq_unique_by_key(CQueue<Key> **keys_p, CQueue<Value> **values_p, const size_t M, void* d_buf) {
 //    // todo - implement

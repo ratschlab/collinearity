@@ -7,8 +7,8 @@
 
 void test_cqutils() {
     const size_t N = (4 MiB) + 123456;
-    auto keys = generate_random<u4>(N<<5, N);
-    auto values = generate_random<u8>(N<<5, N);
+    auto keys = generate_random<u4>(N<<4, N);
+    auto values = generate_random<u8>(N<<4, N);
 
     CQueue<u4> cqkeys(1 MiB);
     cqkeys.push_back((const u4*)keys.data(), N);
@@ -31,5 +31,12 @@ void test_cqutils() {
     check(parlay::equal(keys, res_keys), "Keys match");
     check(parlay::equal(values, res_values), "Values match");
 
+    cqkeys.push_back(res_keys.data(), N);
+    CQueue<u4> unique_keys(1 MiB, true);
+    CQueue<u4> counts;
+    cq_count_unique(cqkeys, 1 MiB, buf, unique_keys, counts);
+    info("Found %zd unique keys", unique_keys.size());
+    unique_keys.clear();
+    counts.clear();
 
 }
