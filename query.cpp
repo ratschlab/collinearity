@@ -20,7 +20,6 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
     // 2. create key-value pairs
     // 3. find collinear chains
 
-//    idx_slice_t isl;
     tsl::hopscotch_map<u8, u4> intercept_counts[batch_sz];
 
     std::vector<std::string> headers;
@@ -81,8 +80,7 @@ static void align(std::vector<std::string> &qry_headers, std::vector<u4> &length
     parlay::sequence<u4> trg_ref_id(B);
     parlay::sequence<u8> trg_pos(B);
 
-//    parlay::for_each(parlay::iota(B), [&](size_t i){
-    for (u8 i = 0; i < B; ++i){
+    parlay::for_each(parlay::iota(B), [&](size_t i){
         intercept_counts[i].clear();
         auto qry_offset = qry_offsets.first[i];
         auto qry_size = lengths[i];
@@ -105,25 +103,6 @@ static void align(std::vector<std::string> &qry_headers, std::vector<u4> &length
                     }
                 }
             }
-//            auto [start, end] = isl.get(qkeys[j]);
-//            for (auto p = start; p < end; ++p) {
-//                auto v = *p;
-//                if (v) {
-//                    u8 ref_id = get_id_from(v);
-//                    u8 ref_pos = get_pos_from(v);
-//                    uint intercept = (ref_pos > qry_pos) ? (ref_pos - qry_pos) : 0;
-//                    intercept /= bandwidth;
-//                    u8 key = make_key_from(ref_id, intercept);
-//                    if (intercept_counts[i].contains(key)) intercept_counts[i][key]++;
-//                    else intercept_counts[i][key] = 1;
-//                    if (intercept >= bandwidth) {
-//                        intercept -= bandwidth;
-//                        key = make_key_from(ref_id, intercept);
-//                        if (intercept_counts[i].contains(key)) intercept_counts[i][key]++;
-//                        else intercept_counts[i][key] = 1;
-//                    }
-//                }
-//            }
         }
         // traverse through the map and check the intercept with the maximum votes
         uint max_nvotes = 0;
@@ -141,8 +120,7 @@ static void align(std::vector<std::string> &qry_headers, std::vector<u4> &length
             trg_ref_id[i] = -1;
             trg_pos[i] = -1;
         }
-    }
-//    );
+    });
     print_alignments(qry_headers, trg_headers, trg_ref_id, trg_pos);
 }
 

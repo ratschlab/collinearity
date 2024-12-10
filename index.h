@@ -37,7 +37,6 @@ struct index_t {
             auto count = counts[i];
             size_t nv = qvalues.pop_front(val_buf.data(), count);
             verify(nv == count);
-//            parlay::sort_inplace(val_buf);
             values[key].compress(val_buf.data(), nv, true);
         }
         info("Done");
@@ -46,51 +45,6 @@ struct index_t {
     const std::vector<u8> &get(u4 key) {
         return values[key].v;
     }
-
-//    void batch_get(parlay::sequence<u4> &qry_keys, idx_slice_t &slice) {
-//        slice.reset();
-//        auto histogram = parlay::histogram_by_key(qry_keys);
-//        parlay::sort_inplace(histogram);
-////        size_t num_unique_qry_keys = histogram.size();
-////        slice.val_counts.resize(num_unique_qry_keys);
-////        slice.val_offsets.resize(num_unique_qry_keys);
-//
-////        parlay::for_each(parlay::iota(histogram.size()), [&](size_t i){
-//        for (u8 i = 0; i < histogram.size(); ++i) {
-//            auto key = histogram[i].first;
-//            slice.val_counts[key] = values[key].n;
-//            slice.val_offsets[key] = slice.val_counts[key];
-//
-////            auto val_p = kv.find(key);
-////            if (val_p != kv.end()) {
-////                auto idx = val_p.value();
-////                slice.val_counts[i] = values[idx].n;
-////                slice.val_offsets[i] = slice.val_counts[i];
-////            } else {
-////                slice.val_counts[i] = 0;
-////                slice.val_offsets[i] = 0;
-////            }
-//////            slice.kv.Insert(key, i);
-////            slice.kv[key] = i;
-//        }
-////        );
-//        slice.values.resize(parlay::scan_inplace(slice.val_offsets));
-//        expect(slice.values.size() == parlay::reduce(slice.val_counts));
-//
-////        parlay::for_each(parlay::iota(histogram.size()), [&](size_t i){
-//        const auto valptr = slice.values.data();
-//        for (u8 i = 0; i < histogram.size(); ++i) {
-//            auto key = histogram[i].first;
-//            if (slice.val_counts[key]) {
-//
-////                auto idx = kv[key];
-//
-//                size_t n = values[key].decompress(valptr + slice.val_offsets[key]);
-//                verify(n == slice.val_counts[key]);
-//            }
-//        }
-//        );
-//    }
 };
 
 #endif //COLLINEARITY_INDEX_H
