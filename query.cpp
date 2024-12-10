@@ -10,7 +10,7 @@
 using namespace klibpp;
 
 static void align(std::vector<std::string> &qry_headers, std::vector<u4> &lengths, parlay::sequence<u4> &qkeys,
-                  std::vector<std::string> &trg_headers, index_t *index, idx_slice_t &isl,
+                  std::vector<std::string> &trg_headers, index_t *index,
                   tsl::hopscotch_map<u8, u4> *intercept_counts);
 static inline void print_alignments(std::vector<std::string> &qry_headers, std::vector<std::string> &trg_headers,
                                     parlay::sequence<u4> &trg_ids, parlay::sequence<u8> &trg_posns);
@@ -20,7 +20,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
     // 2. create key-value pairs
     // 3. find collinear chains
 
-    idx_slice_t isl;
+//    idx_slice_t isl;
     tsl::hopscotch_map<u8, u4> intercept_counts[batch_sz];
 
     std::vector<std::string> headers;
@@ -47,7 +47,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
                 // query
                 expect(headers.size() == nr);
                 expect(lengths.size() == nr);
-                align(headers, lengths, qKeys, refnames, index, isl, intercept_counts);
+                align(headers, lengths, qKeys, refnames, index, intercept_counts);
                 info("%d", nr);
                 nr = 0;
                 qKeys.clear();
@@ -60,7 +60,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
         // query
         expect(headers.size() == nr);
         expect(lengths.size() == nr);
-        align(headers, lengths, qKeys, refnames, index, isl, intercept_counts);
+        align(headers, lengths, qKeys, refnames, index, intercept_counts);
         info("%d", nr);
         nr = 0;
         qKeys.clear();
@@ -73,7 +73,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
 }
 
 static void align(std::vector<std::string> &qry_headers, std::vector<u4> &lengths, parlay::sequence<u4> &qkeys,
-                  std::vector<std::string> &trg_headers, index_t *index, idx_slice_t &isl,
+                  std::vector<std::string> &trg_headers, index_t *index,
                   tsl::hopscotch_map<u8, u4> *intercept_counts) {
     const auto B = qry_headers.size();
     expect(B == lengths.size());
@@ -81,17 +81,15 @@ static void align(std::vector<std::string> &qry_headers, std::vector<u4> &length
     parlay::sequence<u4> trg_ref_id(B);
     parlay::sequence<u8> trg_pos(B);
 
-    index->batch_get(qkeys, isl);
 //    parlay::for_each(parlay::iota(B), [&](size_t i){
     for (u8 i = 0; i < B; ++i){
         intercept_counts[i].clear();
         auto qry_offset = qry_offsets.first[i];
         auto qry_size = lengths[i];
         for (u4 qry_pos = 0, j = qry_offset; j < qry_offset + qry_size; ++j, ++qry_pos) {
-            auto [start, end] = isl.get(qkeys[j]);
-            for (auto p = start; p < end; ++p) {
-                auto v = *p;
-                if (v) {
+            auto &values = index->get(qkeys[j]);
+            if (!values.empty()) {
+                for (auto v : values) {
                     u8 ref_id = get_id_from(v);
                     u8 ref_pos = get_pos_from(v);
                     uint intercept = (ref_pos > qry_pos) ? (ref_pos - qry_pos) : 0;
@@ -107,6 +105,25 @@ static void align(std::vector<std::string> &qry_headers, std::vector<u4> &length
                     }
                 }
             }
+//            auto [start, end] = isl.get(qkeys[j]);
+//            for (auto p = start; p < end; ++p) {
+//                auto v = *p;
+//                if (v) {
+//                    u8 ref_id = get_id_from(v);
+//                    u8 ref_pos = get_pos_from(v);
+//                    uint intercept = (ref_pos > qry_pos) ? (ref_pos - qry_pos) : 0;
+//                    intercept /= bandwidth;
+//                    u8 key = make_key_from(ref_id, intercept);
+//                    if (intercept_counts[i].contains(key)) intercept_counts[i][key]++;
+//                    else intercept_counts[i][key] = 1;
+//                    if (intercept >= bandwidth) {
+//                        intercept -= bandwidth;
+//                        key = make_key_from(ref_id, intercept);
+//                        if (intercept_counts[i].contains(key)) intercept_counts[i][key]++;
+//                        else intercept_counts[i][key] = 1;
+//                    }
+//                }
+//            }
         }
         // traverse through the map and check the intercept with the maximum votes
         uint max_nvotes = 0;

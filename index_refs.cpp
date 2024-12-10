@@ -44,7 +44,7 @@ std::pair<index_t*, std::vector<std::string>> process_fasta(const char* fasta_fi
         }
     }
     close(fd);
-    
+
     info("Generated %zd tuples from %zd sequences", total_nk, ref_id);
 
     auto buf = malloc(BLOCK_SZ * 12);
@@ -57,31 +57,6 @@ std::pair<index_t*, std::vector<std::string>> process_fasta(const char* fasta_fi
     cq_count_unique(q_keys, BLOCK_SZ, buf, q_unique_keys, q_counts);
     free(buf);
     info("Counted unique keys.");
-
-    // create array of q_values for each key
-//    size_t nk = q_unique_keys.size();
-//    expect(nk == q_counts.size());
-//    std::vector<u4> tmpk(nk), tmpc(nk);
-//    q_unique_keys.pop_front(tmpk.data(), nk);
-//    q_counts.pop_front(tmpc.data(), nk);
-//    auto tmpo = parlay::scan(tmpc);
-//    auto index = new index_t(nk);
-//    verify(parlay::is_sorted(tmpk));
-//    parlay::for_each(parlay::iota(nk), [&](size_t i){
-//        u8 val = (((u8)tmpo.first[i])<<20 | (tmpc[i]));
-//        index->kv.Insert(tmpk[i], val);
-//    });
-//
-//    size_t max_key_count = *parlay::max_element(tmpk);
-//    std::vector<u8> val_buf(max_key_count);
-//    for (int i = 0; i < nk; ++i) {
-//        size_t nv = q_values.pop_front(val_buf.data(), tmpc[i]);
-//        verify(nv == tmpc[i]);
-//        val_buf.resize(nv);
-//        verify(parlay::is_sorted(val_buf));
-//        index->values.emplace_back(val_buf.data(), nv);
-//    }
-//    info("Consolidated values for each unique key.");
 
     auto index = new index_t(q_unique_keys, q_counts, q_values);
     return std::make_pair(index, std::move(headers));

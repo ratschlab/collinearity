@@ -15,12 +15,12 @@
 #include "index.h"
 
 #define encode_dna(x) (((x)>>1)&3)
-// I am assuming that the number of sequences won't exceed 2^24 (16M)
+// I am assuming that the number of sequences won't exceed 2^20 (1M)
 // and the longest sequence won't be longer than 2^40 (1T)
 // if that's not the case, change the following line accordingly
 #define ref_id_nbits 20
 #define ref_len_nbits (64 - ref_id_nbits)
-#define ref_id_bitmask ((1ULL << ref_len_nbits) - 1)
+#define ref_id_bitmask (((1ULL) << ref_len_nbits) - 1)
 #define make_key_from(id, pos) (((u8)(id)) << (ref_len_nbits) | (pos))
 #define get_id_from(key) ((key) >> ref_len_nbits)
 #define get_pos_from(key) ((key) & ref_id_bitmask)
