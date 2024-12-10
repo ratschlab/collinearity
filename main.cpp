@@ -1,7 +1,9 @@
 #include "collinearity.h"
 
-int main() {
-    auto idx = process_fasta("/scratch/Zymo/Refs-fwd-rev.fasta", 10, 4);
-//    process_fasta("/scratch/HumanGut/Refs_d0.2_Comm_1_fwd_and_rev.fa", 10, 4);
+int main(int argc, char *argv[]) {
+    const char *ref = "/scratch/Zymo/Refs-fwd-rev.fasta";
+    const char *qry = "/scratch/Zymo/reads-tiny.fasta";
+    auto [idx, refnames] = process_fasta(ref, 10, 4);
+    query(qry, 10, 4, 512, idx, refnames);
     return 0;
 }

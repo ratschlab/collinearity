@@ -10,3 +10,6 @@
 [submodule "external/libvbyte"]
 	path = external/libvbyte
 	url = https://github.com/cruppstahl/libvbyte.git
+[submodule "external/parlayhash"]
+	path = external/parlayhash
+	url = https://github.com/cmuparlay/parlayhash.git

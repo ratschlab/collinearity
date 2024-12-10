@@ -8,8 +8,8 @@
 #include "parlay/sequence.h"
 
 int main(int argc, char *argv[]) {
-//    test_compressed_array();
-//    test_cqueue();
+    test_compressed_array();
+    test_cqueue();
     test_cqutils();
 
     // Input: a sorted sequence

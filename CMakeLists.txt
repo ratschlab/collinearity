@@ -7,14 +7,13 @@ include_directories(external/parlaylib/include)
 include_directories(external/libvbyte)
 include_directories(external/hopscotch-map/include)
 include_directories(external/kseqpp/include)
+include_directories(external/parlayhash/include)
 
 add_subdirectory(external/streamvbyte)
 add_subdirectory(external/kseqpp)
 
 add_library(collinear STATIC
         prelude.h
-        index_refs.cpp
-        collinearity.h
         external/libvbyte/varintdecode.c
         external/libvbyte/vbyte.cc
         compressed_array.h
@@ -23,7 +22,10 @@ add_library(collinear STATIC
         cqutils.h)
 
 add_executable(Collinearity main.cpp
-        query.c)
+        index_refs.cpp
+        query.cpp
+        collinearity.h
+        index.h)
 add_executable(tests
         tests/testmain.cpp
         tests/test_compressed_array.cpp
