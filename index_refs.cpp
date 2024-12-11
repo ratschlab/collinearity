@@ -43,6 +43,7 @@ std::pair<index_t*, std::vector<std::string>> process_fasta(const char* fasta_fi
             sitrep("Generated %zd tuples from %zd sequences", total_nk, ref_id);
         }
     }
+    stderrflush;
     close(fd);
 
     info("Generated %zd tuples from %zd sequences", total_nk, ref_id);

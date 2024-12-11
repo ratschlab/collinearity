@@ -3,24 +3,52 @@
 //
 
 #include "collinearity.h"
-#include "tsl/hopscotch_map.h"
+#include "xxhash.h"
 
 #define SANITY_CHECKS 1
 
 using namespace klibpp;
 
 static void align(std::vector<std::string> &qry_headers, std::vector<u4> &lengths, parlay::sequence<u4> &qkeys,
-                  std::vector<std::string> &trg_headers, index_t *index,
-                  tsl::hopscotch_map<u8, u4> *intercept_counts);
+                  std::vector<std::string> &trg_headers, index_t *index);
 static inline void print_alignments(std::vector<std::string> &qry_headers, std::vector<std::string> &trg_headers,
                                     parlay::sequence<u4> &trg_ids, parlay::sequence<u8> &trg_posns);
+
+// CMS estimate is within .8 percent of the count with a 99.5 percent probability
+#define CMS_ERROR_RATE .008
+#define CMS_CONFIDENCE .995
+#define LOG_TWO 0.6931471805599453
+// width = ceil(2 / error_rate)
+#define CMS_WIDTH 257
+//const int CMS_WIDTH = (int)ceil(2.0/CMS_ERROR_RATE);
+// depth = ceil((-1 * log(1 - confidence)) / LOG_TWO)
+#define CMS_DEPTH 8
+//const int CMS_DEPTH = (int)ceil((-1 * log(1 - CMS_CONFIDENCE)) / LOG_TWO);
+
+struct heavyhitter_t {
+    u4 buf[CMS_DEPTH][CMS_WIDTH] = {0};
+    u8 top_key = -1;
+    u4 top_count = 0;
+    void insert(u8 key) {
+        u4 count = -1;
+        for (int i = 0; i < CMS_DEPTH; i+=2) {
+            u8 hash = XXH64_hash64(key, i);
+            u4 l1 = ((u4)hash) % CMS_WIDTH, l2 = (u4)(hash>>32) % CMS_WIDTH;
+            buf[i][l1]++;
+            buf[i+1][l2]++;
+            count = MIN(count, buf[i][l1]);
+            count = MIN(count, buf[i+1][l2]);
+        }
+        if (count > top_count) {
+            top_count = count, top_key = key;
+        }
+    }
+};
 
 void query(const char *filename, int k, int sigma, const size_t batch_sz, index_t *index, std::vector<std::string> &refnames) {
     // 1. read sequences in a batch
     // 2. create key-value pairs
     // 3. find collinear chains
-
-    tsl::hopscotch_map<u8, u4> intercept_counts[batch_sz];
 
     std::vector<std::string> headers;
     std::vector<u4> lengths;
@@ -35,6 +63,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
     info("Begin query..");
 
     int nr = 0;
+    u8 total_nr = 0;
     while (ks >> record) {
         if (record.seq.size() > k) {
             headers.push_back(record.name);
@@ -46,8 +75,9 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
                 // query
                 expect(headers.size() == nr);
                 expect(lengths.size() == nr);
-                align(headers, lengths, qKeys, refnames, index, intercept_counts);
-                info("%d", nr);
+                align(headers, lengths, qKeys, refnames, index);
+                total_nr += nr;
+                sitrep("%lu", total_nr);
                 nr = 0;
                 qKeys.clear();
                 headers.clear();
@@ -59,21 +89,21 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
         // query
         expect(headers.size() == nr);
         expect(lengths.size() == nr);
-        align(headers, lengths, qKeys, refnames, index, intercept_counts);
-        info("%d", nr);
+        align(headers, lengths, qKeys, refnames, index);
+        total_nr += nr;
+        sitrep("%lu", total_nr);
         nr = 0;
         qKeys.clear();
         headers.clear();
         lengths.clear();
     }
-    printf("\n");
+    stderrflush;
     close(fd);
     info("Done.");
 }
 
 static void align(std::vector<std::string> &qry_headers, std::vector<u4> &lengths, parlay::sequence<u4> &qkeys,
-                  std::vector<std::string> &trg_headers, index_t *index,
-                  tsl::hopscotch_map<u8, u4> *intercept_counts) {
+                  std::vector<std::string> &trg_headers, index_t *index) {
     const auto B = qry_headers.size();
     expect(B == lengths.size());
     auto qry_offsets = parlay::scan(lengths);
@@ -81,41 +111,37 @@ static void align(std::vector<std::string> &qry_headers, std::vector<u4> &length
     parlay::sequence<u8> trg_pos(B);
 
     parlay::for_each(parlay::iota(B), [&](size_t i){
-        intercept_counts[i].clear();
+        heavyhitter_t hh;
         auto qry_offset = qry_offsets.first[i];
         auto qry_size = lengths[i];
         for (u4 qry_pos = 0, j = qry_offset; j < qry_offset + qry_size; ++j, ++qry_pos) {
-            auto &values = index->get(qkeys[j]);
-            if (!values.empty()) {
-                for (auto v : values) {
-                    u8 ref_id = get_id_from(v);
-                    u8 ref_pos = get_pos_from(v);
-                    uint intercept = (ref_pos > qry_pos) ? (ref_pos - qry_pos) : 0;
-                    intercept /= bandwidth;
-                    u8 key = make_key_from(ref_id, intercept);
-                    if (intercept_counts[i].contains(key)) intercept_counts[i][key]++;
-                    else intercept_counts[i][key] = 1;
-                    if (intercept >= bandwidth) {
-                        intercept -= bandwidth;
-                        key = make_key_from(ref_id, intercept);
-                        if (intercept_counts[i].contains(key)) intercept_counts[i][key]++;
-                        else intercept_counts[i][key] = 1;
-                    }
+            const auto &[vbegin, vend] = index->get(qkeys[j]);
+            for (auto v = vbegin; v != vend; ++v) {
+                u8 ref_id = get_id_from(*v);
+                u8 ref_pos = get_pos_from(*v);
+                uint intercept = (ref_pos > qry_pos) ? (ref_pos - qry_pos) : 0;
+                intercept /= bandwidth;
+                u8 key = make_key_from(ref_id, intercept);
+                hh.insert(key);
+                if (intercept >= bandwidth) {
+                    intercept -= bandwidth;
+                    key = make_key_from(ref_id, intercept);
+                    hh.insert(key);
                 }
             }
         }
         // traverse through the map and check the intercept with the maximum votes
-        uint max_nvotes = 0;
-        uint64_t best_key = 0;
-        for(const auto& kv : intercept_counts[i]) {
-            if (kv.second > max_nvotes) {
-                max_nvotes = kv.second, best_key = kv.first;
-            }
-        }
+//        uint max_nvotes = 0;
+//        uint64_t best_key = 0;
+//        for(const auto& kv : intercept_counts[i]) {
+//            if (kv.second > max_nvotes) {
+//                max_nvotes = kv.second, best_key = kv.first;
+//            }
+//        }
         // in this case, discovery_fraction is the frac. of kmers that support an intercept
-        if ((max_nvotes * 1.0) / qry_size >= presence_fraction) {
-            trg_ref_id[i] = get_id_from(best_key);
-            trg_pos[i] = get_pos_from(best_key) * bandwidth;
+        if ((hh.top_count * 1.0) / qry_size >= presence_fraction) {
+            trg_ref_id[i] = get_id_from(hh.top_key);
+            trg_pos[i] = get_pos_from(hh.top_key) * bandwidth;
         } else {
             trg_ref_id[i] = -1;
             trg_pos[i] = -1;

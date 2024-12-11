@@ -59,6 +59,8 @@ static char *time_str(){
     fflush(stderr); \
 } while(0)
 
+#define stderrflush fprintf(stderr, "\n")
+
 #define warn(fmt, ...) do { \
     fprintf(stderr, "[%s]" YEL "WARN: " fmt RESET " at %s:%i\n",       \
             time_str(), ##__VA_ARGS__, __FILE__, __LINE__);     \

@@ -18,32 +18,38 @@
 #define NKEYS (1<<(K<<1))
 
 struct index_t {
-    std::vector<compressed_array_t<u8>> values;
+    std::vector<u4> counts, offsets;
+    std::vector<u8> values;
 
     index_t(CQueue<u4> &qkeys, CQueue<u4> &qcounts, CQueue<u8> &qvalues) {
         values.resize(NKEYS);
         size_t nk = qkeys.size();
         expect(nk == qcounts.size());
-        std::vector<u4> keys(nk), counts(nk);
+        std::vector<u4> keys(nk), n_values(nk);
         qkeys.pop_front(keys.data(), nk);
-        qcounts.pop_front(counts.data(), nk);
-        verify(parlay::reduce(counts) == qvalues.size());
+        qcounts.pop_front(n_values.data(), nk);
+        verify(parlay::reduce(n_values) == qvalues.size());
 
-        info("Consolidating values for each unique key.");
-        size_t max_key_count = *parlay::max_element(counts);
-        std::vector<u8> val_buf(max_key_count);
-        for (int i = 0; i < nk; ++i) {
+        info("Allocating memory for coordinates..");
+        values.resize(qvalues.size());
+
+        info("Consolidating coordinates..");
+        qvalues.pop_front(values.data(), values.size());
+        counts.resize(NKEYS);
+        offsets.resize(NKEYS);
+        std::fill(counts.begin(), counts.end(), 0);
+        std::fill(offsets.begin(), offsets.end(), 0);
+        parlay::for_each(parlay::iota(nk), [&](size_t i){
             auto key = keys[i];
-            auto count = counts[i];
-            size_t nv = qvalues.pop_front(val_buf.data(), count);
-            verify(nv == count);
-            values[key].compress(val_buf.data(), nv, true);
-        }
+            counts[key] = n_values[key];
+            offsets[key] = n_values[key];
+        });
+        parlay::scan_inplace(offsets);
         info("Done");
     }
 
-    const std::vector<u8> &get(u4 key) {
-        return values[key].v;
+    std::pair<u8*, u8*> get(u4 key) {
+        return std::make_pair(values.data()+offsets[key], values.data()+offsets[key]+counts[key]);
     }
 };
 
