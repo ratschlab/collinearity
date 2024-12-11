@@ -5,7 +5,7 @@
 #include "collinearity.h"
 
 #define SANITY_CHECKS 1
-#define BLOCK_SZ (32 MiB)
+#define BLOCK_SZ (256 MiB)
 
 using namespace klibpp;
 
@@ -49,7 +49,7 @@ std::pair<index_t*, std::vector<std::string>> process_fasta(const char* fasta_fi
     info("Generated %zd tuples from %zd sequences", total_nk, ref_id);
 
     info("Sorting..");
-    auto buf = malloc(BLOCK_SZ * 12);
+    auto buf = malloc(12ULL * BLOCK_SZ);
     cq_sort_by_key(q_keys, q_values, BLOCK_SZ, buf);
 
     // compress by q_keys

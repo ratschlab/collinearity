@@ -197,6 +197,7 @@ static void cq_sort_by_key(CQueue<Key> &keys, CQueue<Value> &values, const size_
     }
 
     else {
+        sitrep("Sorting blocks..");
         /// sort key-value pairs in chunks of M
         std::queue<std::pair<CQueue<Key>, CQueue<Value>>> sorted;
         expect(sorted.size() == 0);
@@ -216,7 +217,9 @@ static void cq_sort_by_key(CQueue<Key> &keys, CQueue<Value> &values, const size_
         expect(values.size() == 0);
 
         /// keep merging until we have 2 blocks left
+        int merge_round = 1;
         while (sorted.size() > 2) {
+            sitrep("Merge round %d", merge_round++);
             auto kv_pair_left = std::move(sorted.front());
             sorted.pop();
             auto kv_pair_right = std::move(sorted.front());
@@ -228,6 +231,7 @@ static void cq_sort_by_key(CQueue<Key> &keys, CQueue<Value> &values, const size_
             sorted.push(std::make_pair(std::move(out_keys), std::move(out_values)));
         }
 
+        sitrep("Final merge round..");
         // last 2 blocks remaining. merge
         auto kv_pair_left = std::move(sorted.front());
         sorted.pop();
@@ -238,6 +242,7 @@ static void cq_sort_by_key(CQueue<Key> &keys, CQueue<Value> &values, const size_
         cq_merge_by_key(kv_pair_left.first, kv_pair_left.second, kv_pair_right.first, kv_pair_right.second, M, d_buf, keys, values);
         expect(keys.size() == N);
         expect(values.size() == N);
+        stderrflush;
     }
 }
 

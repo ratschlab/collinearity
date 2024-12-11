@@ -15,7 +15,7 @@ using namespace klibpp;
 #define CMS_CONFIDENCE .995
 #define LOG_TWO 0.6931471805599453
 // width = ceil(2 / error_rate)
-#define CMS_WIDTH 257
+#define CMS_WIDTH 1021
 //const int CMS_WIDTH = (int)ceil(2.0/CMS_ERROR_RATE);
 // depth = ceil((-1 * log(1 - confidence)) / LOG_TWO)
 #define CMS_DEPTH 8
@@ -54,7 +54,7 @@ struct [[maybe_unused]] heavyhitter_ht_t {
 };
 
 static void align(std::vector<std::string> &qry_headers, std::vector<u4> &lengths, parlay::sequence<u4> &qkeys,
-                  std::vector<std::string> &trg_headers, index_t *index, heavyhitter_ht_t *hhs);
+                  std::vector<std::string> &trg_headers, index_t *index, heavyhitter_cms_t *hhs);
 static inline void print_alignments(std::vector<std::string> &qry_headers, std::vector<std::string> &trg_headers,
                                     parlay::sequence<u4> &trg_ids, parlay::sequence<u8> &trg_posns);
 
@@ -63,7 +63,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
     // 2. create key-value pairs
     // 3. find collinear chains
 
-    heavyhitter_ht_t hhs[parlay::num_workers()];
+    heavyhitter_cms_t hhs[parlay::num_workers()];
     std::vector<std::string> headers;
     std::vector<u4> lengths;
     headers.reserve(batch_sz);
@@ -116,7 +116,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
 }
 
 static void align(std::vector<std::string> &qry_headers, std::vector<u4> &lengths, parlay::sequence<u4> &qkeys,
-                  std::vector<std::string> &trg_headers, index_t *index, heavyhitter_ht_t *hhs) {
+                  std::vector<std::string> &trg_headers, index_t *index, heavyhitter_cms_t *hhs) {
     const auto B = qry_headers.size();
     expect(B == lengths.size());
     auto qry_offsets = parlay::scan(lengths);
