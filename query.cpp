@@ -10,11 +10,6 @@
 
 using namespace klibpp;
 
-static void align(std::vector<std::string> &qry_headers, std::vector<u4> &lengths, parlay::sequence<u4> &qkeys,
-                  std::vector<std::string> &trg_headers, index_t *index);
-static inline void print_alignments(std::vector<std::string> &qry_headers, std::vector<std::string> &trg_headers,
-                                    parlay::sequence<u4> &trg_ids, parlay::sequence<u8> &trg_posns);
-
 // CMS estimate is within .8 percent of the count with a 99.5 percent probability
 #define CMS_ERROR_RATE .008
 #define CMS_CONFIDENCE .995
@@ -58,11 +53,17 @@ struct [[maybe_unused]] heavyhitter_ht_t {
     void reset() { counts.clear(), top_key=-1, top_count = 0; }
 };
 
+static void align(std::vector<std::string> &qry_headers, std::vector<u4> &lengths, parlay::sequence<u4> &qkeys,
+                  std::vector<std::string> &trg_headers, index_t *index, heavyhitter_ht_t *hhs);
+static inline void print_alignments(std::vector<std::string> &qry_headers, std::vector<std::string> &trg_headers,
+                                    parlay::sequence<u4> &trg_ids, parlay::sequence<u8> &trg_posns);
+
 void query(const char *filename, int k, int sigma, const size_t batch_sz, index_t *index, std::vector<std::string> &refnames) {
     // 1. read sequences in a batch
     // 2. create key-value pairs
     // 3. find collinear chains
 
+    heavyhitter_ht_t hhs[parlay::num_workers()];
     std::vector<std::string> headers;
     std::vector<u4> lengths;
     headers.reserve(batch_sz);
@@ -74,7 +75,6 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
     if (fd < 0) error("Could not open %s because %s.", filename, strerror(errno));
     auto ks = make_kstream(fd, read, mode::in);
     info("Begin query..");
-
     int nr = 0;
     u8 total_nr = 0;
     while (ks >> record) {
@@ -88,7 +88,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
                 // query
                 expect(headers.size() == nr);
                 expect(lengths.size() == nr);
-                align(headers, lengths, qKeys, refnames, index);
+                align(headers, lengths, qKeys, refnames, index, hhs);
                 total_nr += nr;
                 sitrep("%lu", total_nr);
                 nr = 0;
@@ -102,7 +102,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
         // query
         expect(headers.size() == nr);
         expect(lengths.size() == nr);
-        align(headers, lengths, qKeys, refnames, index);
+        align(headers, lengths, qKeys, refnames, index, hhs);
         total_nr += nr;
         sitrep("%lu", total_nr);
         nr = 0;
@@ -116,7 +116,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
 }
 
 static void align(std::vector<std::string> &qry_headers, std::vector<u4> &lengths, parlay::sequence<u4> &qkeys,
-                  std::vector<std::string> &trg_headers, index_t *index) {
+                  std::vector<std::string> &trg_headers, index_t *index, heavyhitter_ht_t *hhs) {
     const auto B = qry_headers.size();
     expect(B == lengths.size());
     auto qry_offsets = parlay::scan(lengths);
@@ -124,8 +124,8 @@ static void align(std::vector<std::string> &qry_headers, std::vector<u4> &length
     parlay::sequence<u8> trg_pos(B);
 
     parlay::for_each(parlay::iota(B), [&](size_t i){
-//    for (int i = 0; i < B; ++i) {
-        heavyhitter_ht_t hh;
+        auto &hh = hhs[parlay::worker_id()];
+        hh.reset();
         auto qry_offset = qry_offsets.first[i];
         auto qry_size = lengths[i];
         for (u4 qry_pos = 0, j = qry_offset; j < qry_offset + qry_size; ++j, ++qry_pos) {
@@ -144,14 +144,6 @@ static void align(std::vector<std::string> &qry_headers, std::vector<u4> &length
                 }
             }
         }
-        // traverse through the map and check the intercept with the maximum votes
-//        uint max_nvotes = 0;
-//        uint64_t best_key = 0;
-//        for(const auto& kv : intercept_counts[i]) {
-//            if (kv.second > max_nvotes) {
-//                max_nvotes = kv.second, best_key = kv.first;
-//            }
-//        }
         // in this case, discovery_fraction is the frac. of kmers that support an intercept
         if ((hh.top_count * 1.0) / qry_size >= presence_fraction) {
             trg_ref_id[i] = get_id_from(hh.top_key);
@@ -160,8 +152,7 @@ static void align(std::vector<std::string> &qry_headers, std::vector<u4> &length
             trg_ref_id[i] = -1;
             trg_pos[i] = -1;
         }
-    }
-    );
+    });
     print_alignments(qry_headers, trg_headers, trg_ref_id, trg_pos);
 }
 
