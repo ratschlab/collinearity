@@ -88,4 +88,9 @@ typedef uint64_t u8;
 
 #define alignup(n, a) (((n) + (a)-1) & ~((a)-1))
 
+// K is hardcoded here. change later
+#define KMER_LENGTH 10
+#define SIGMA 4
+#define BATCH_SZ 4096
+
 #endif //COLLINEARITY_PRELUDE_H

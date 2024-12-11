@@ -4,6 +4,7 @@
 
 #include "collinearity.h"
 #include "xxhash.h"
+#include "hash_table8.hpp"
 
 #define SANITY_CHECKS 1
 
@@ -25,24 +26,36 @@ static inline void print_alignments(std::vector<std::string> &qry_headers, std::
 #define CMS_DEPTH 8
 //const int CMS_DEPTH = (int)ceil((-1 * log(1 - CMS_CONFIDENCE)) / LOG_TWO);
 
-struct heavyhitter_t {
-    u4 buf[CMS_DEPTH][CMS_WIDTH] = {0};
+struct [[maybe_unused]] heavyhitter_cms_t {
+    u1 buf[CMS_DEPTH][CMS_WIDTH] = {0};
     u8 top_key = -1;
-    u4 top_count = 0;
-    void insert(u8 key) {
-        u4 count = -1;
+    u2 top_count = 0;
+    void insert(const u8 key) {
+        u2 count = -1;
         for (int i = 0; i < CMS_DEPTH; i+=2) {
             u8 hash = XXH64_hash64(key, i);
-            u4 l1 = ((u4)hash) % CMS_WIDTH, l2 = (u4)(hash>>32) % CMS_WIDTH;
+            u4 l1 = ((u4)hash) % CMS_WIDTH, l2 = ((u4)(hash>>32)) % CMS_WIDTH;
             buf[i][l1]++;
             buf[i+1][l2]++;
             count = MIN(count, buf[i][l1]);
             count = MIN(count, buf[i+1][l2]);
         }
-        if (count > top_count) {
+        if (count > top_count)
             top_count = count, top_key = key;
-        }
     }
+    void reset() { memset(buf, 0, sizeof(buf)), top_key=-1, top_count = 0; }
+};
+
+struct [[maybe_unused]] heavyhitter_ht_t {
+    emhash8::HashMap<u8,u1> counts;
+    u8 top_key = -1;
+    u2 top_count = 0;
+    void insert(const u8 key) {
+        u4 count = counts[key]++;
+        if (count > top_count)
+            top_count = count, top_key = key;
+    }
+    void reset() { counts.clear(), top_key=-1, top_count = 0; }
 };
 
 void query(const char *filename, int k, int sigma, const size_t batch_sz, index_t *index, std::vector<std::string> &refnames) {
@@ -111,7 +124,8 @@ static void align(std::vector<std::string> &qry_headers, std::vector<u4> &length
     parlay::sequence<u8> trg_pos(B);
 
     parlay::for_each(parlay::iota(B), [&](size_t i){
-        heavyhitter_t hh;
+//    for (int i = 0; i < B; ++i) {
+        heavyhitter_ht_t hh;
         auto qry_offset = qry_offsets.first[i];
         auto qry_size = lengths[i];
         for (u4 qry_pos = 0, j = qry_offset; j < qry_offset + qry_size; ++j, ++qry_pos) {
@@ -119,7 +133,7 @@ static void align(std::vector<std::string> &qry_headers, std::vector<u4> &length
             for (auto v = vbegin; v != vend; ++v) {
                 u8 ref_id = get_id_from(*v);
                 u8 ref_pos = get_pos_from(*v);
-                uint intercept = (ref_pos > qry_pos) ? (ref_pos - qry_pos) : 0;
+                u8 intercept = (ref_pos > qry_pos) ? (ref_pos - qry_pos) : 0;
                 intercept /= bandwidth;
                 u8 key = make_key_from(ref_id, intercept);
                 hh.insert(key);
@@ -146,7 +160,8 @@ static void align(std::vector<std::string> &qry_headers, std::vector<u4> &length
             trg_ref_id[i] = -1;
             trg_pos[i] = -1;
         }
-    });
+    }
+    );
     print_alignments(qry_headers, trg_headers, trg_ref_id, trg_pos);
 }
 

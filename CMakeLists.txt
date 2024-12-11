@@ -8,6 +8,7 @@ include_directories(external/libvbyte)
 include_directories(external/hopscotch-map/include)
 include_directories(external/kseqpp/include)
 include_directories(external/parlayhash/include)
+include_directories(external/emhash)
 
 add_subdirectory(external/streamvbyte)
 add_subdirectory(external/kseqpp)
@@ -25,7 +26,8 @@ add_executable(Collinearity main.cpp
         index_refs.cpp
         query.cpp
         collinearity.h
-        index.h)
+        index.h
+        xxhash.h)
 add_executable(tests
         tests/testmain.cpp
         tests/test_compressed_array.cpp

@@ -48,16 +48,16 @@ std::pair<index_t*, std::vector<std::string>> process_fasta(const char* fasta_fi
 
     info("Generated %zd tuples from %zd sequences", total_nk, ref_id);
 
+    info("Sorting..");
     auto buf = malloc(BLOCK_SZ * 12);
     cq_sort_by_key(q_keys, q_values, BLOCK_SZ, buf);
-    info("Sorted.");
 
     // compress by q_keys
+    info("Counting unique keys..");
     CQueue<u4> q_unique_keys(BLOCK_SZ, true);
     CQueue<u4> q_counts(BLOCK_SZ, false);
     cq_count_unique(q_keys, BLOCK_SZ, buf, q_unique_keys, q_counts);
     free(buf);
-    info("Counted unique keys.");
 
     auto index = new index_t(q_unique_keys, q_counts, q_values);
     return std::make_pair(index, std::move(headers));

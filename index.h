@@ -13,9 +13,8 @@
 #include "tsl/hopscotch_map.h"
 
 #define SANITY_CHECKS 1
-// K is hardcoded here. change later
-#define K 10
-#define NKEYS (1<<(K<<1))
+
+#define NKEYS (1<<(KMER_LENGTH<<1))
 
 struct index_t {
     std::vector<u4> counts, offsets;
@@ -24,14 +23,15 @@ struct index_t {
     index_t(CQueue<u4> &qkeys, CQueue<u4> &qcounts, CQueue<u8> &qvalues) {
         values.resize(NKEYS);
         size_t nk = qkeys.size();
+        size_t nv = qvalues.size();
         expect(nk == qcounts.size());
         std::vector<u4> keys(nk), n_values(nk);
         qkeys.pop_front(keys.data(), nk);
         qcounts.pop_front(n_values.data(), nk);
-        verify(parlay::reduce(n_values) == qvalues.size());
+        verify(parlay::reduce(n_values) == nv);
 
         info("Allocating memory for coordinates..");
-        values.resize(qvalues.size());
+        values.resize(nv);
 
         info("Consolidating coordinates..");
         qvalues.pop_front(values.data(), values.size());
@@ -41,10 +41,11 @@ struct index_t {
         std::fill(offsets.begin(), offsets.end(), 0);
         parlay::for_each(parlay::iota(nk), [&](size_t i){
             auto key = keys[i];
-            counts[key] = n_values[key];
-            offsets[key] = n_values[key];
+            counts[key] = n_values[i];
+            offsets[key] = n_values[i];
         });
-        parlay::scan_inplace(offsets);
+        size_t c = parlay::scan_inplace(offsets);
+        verify(c == values.size());
         info("Done");
     }
 

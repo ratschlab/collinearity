@@ -26,7 +26,7 @@
 #define get_pos_from(key) ((key) & ref_id_bitmask)
 
 // the minimum fraction of kmers required for majority vote
-const float presence_fraction = .2f;
+const float presence_fraction = .1f;
 
 // this is the band width, I will later set this from the config
 const int bandwidth = 15;
