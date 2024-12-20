@@ -19,7 +19,7 @@
 struct index_t {
     std::vector<u4> counts, offsets;
     std::vector<u8> values;
-
+    index_t() = default;
     index_t(CQueue<u4> &qkeys, CQueue<u4> &qcounts, CQueue<u8> &qvalues) {
         values.resize(NKEYS);
         size_t nk = qkeys.size();

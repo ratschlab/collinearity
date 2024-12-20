@@ -78,15 +78,19 @@ typedef uint32_t u4;
 typedef uint64_t u8;
 
 /** memory allocation/deallcoation utils */
-
 #define KiB <<10u
 #define MiB <<20u
 #define GiB <<30u
 
+/** generic macros */
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
-
 #define alignup(n, a) (((n) + (a)-1) & ~((a)-1))
+
+/** string macros */
+#define streq(s1, s2) (!strcmp((s1), (s2)))
+#define str_endswith(str, suffix) (streq((suffix), (str) + (strlen(str) - strlen(suffix))))
+
 
 // K is hardcoded here. change later
 #define KMER_LENGTH 10
