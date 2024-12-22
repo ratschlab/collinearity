@@ -63,7 +63,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
     // 2. create key-value pairs
     // 3. find collinear chains
 
-    heavyhitter_ht_t hhs[parlay::num_workers()];
+    heavyhitter_ht_t hhs[batch_sz];
     std::vector<std::string> headers;
     std::vector<u4> lengths;
     headers.reserve(batch_sz);
@@ -124,7 +124,7 @@ static void align(std::vector<std::string> &qry_headers, std::vector<u4> &length
     parlay::sequence<u8> trg_pos(B);
 
     parlay::for_each(parlay::iota(B), [&](size_t i){
-        auto &hh = hhs[parlay::worker_id()];
+        auto &hh = hhs[i];
         hh.reset();
         auto qry_offset = qry_offsets.first[i];
         auto qry_size = lengths[i];

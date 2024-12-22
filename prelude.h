@@ -93,7 +93,7 @@ typedef uint64_t u8;
 
 
 // K is hardcoded here. change later
-#define KMER_LENGTH 10
+#define KMER_LENGTH 15
 #define SIGMA 4
 #define BATCH_SZ 4096
 
