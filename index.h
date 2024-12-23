@@ -17,8 +17,8 @@
 #define NKEYS (1<<(KMER_LENGTH<<1))
 
 struct index_t {
-    std::vector<u4> counts, offsets;
-    std::vector<u8> values;
+    std::vector<u4> counts;
+    std::vector<u8> offsets, values;
     index_t() = default;
     index_t(CQueue<u4> &qkeys, CQueue<u4> &qcounts, CQueue<u8> &qvalues) {
         values.resize(NKEYS);
@@ -28,7 +28,11 @@ struct index_t {
         std::vector<u4> keys(nk), n_values(nk);
         qkeys.pop_front(keys.data(), nk);
         qcounts.pop_front(n_values.data(), nk);
-        verify(parlay::reduce(n_values) == nv);
+        if (SANITY_CHECKS) {
+            size_t total = 0;
+            for (auto c: n_values) total += c;
+            expect(total == nv);
+        }
 
         info("Allocating memory for coordinates..");
         values.resize(nv);

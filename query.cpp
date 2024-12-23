@@ -42,9 +42,9 @@ struct [[maybe_unused]] heavyhitter_cms_t {
 };
 
 struct [[maybe_unused]] heavyhitter_ht_t {
-    emhash8::HashMap<u8,u1> counts;
+    emhash8::HashMap<u8,u4> counts;
     u8 top_key = -1;
-    u2 top_count = 0;
+    u4 top_count = 0;
     void insert(const u8 key) {
         u4 count = counts[key]++;
         if (count > top_count)

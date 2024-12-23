@@ -27,13 +27,16 @@ add_executable(Collinearity main.cpp
         query.cpp
         collinearity.h
         index.h
-        xxhash.h)
+        xxhash.h
+        cqueue_utils_new.h)
 add_executable(tests
         tests/testmain.cpp
         tests/test_compressed_array.cpp
         tests/test_cqueue.cpp
         tests/test_cqutils.cpp
-        tests/tests.h)
+        tests/tests.h
+        tests/test_cqueue_new.cpp
+        tests/test_cqutils_new.cpp)
 
 target_compile_options(collinear PRIVATE -fpermissive -mavx)
 target_compile_options(Collinearity PRIVATE -fpermissive)
