@@ -68,8 +68,13 @@ static char *time_str(){
 
 #define alignup(n, a) (((n) + (a)-1) & ~((a)-1))
 
+#ifdef NDEBUG
 #define expect(expression) if (!(expression)) error("Expected " #expression "")
 #define verify(expression) if (SANITY_CHECKS && !(expression)) error("Expected " #expression "")
+#else
+#define expect(expression)
+#define verify(expression)
+#endif
 
 /// aliases and typedefs
 typedef uint8_t u1;
