@@ -10,10 +10,10 @@ void test_cqutils() {
     auto keys = generate_random<u4>(N<<4, N);
     auto values = generate_random<u8>(N<<4, N);
 
-    CQueue<u4> cqkeys(1 MiB);
+    cqueue_t<u4> cqkeys(1 MiB);
     cqkeys.push_back((const u4*)keys.data(), N);
 
-    CQueue<u8> cqvalues(1 MiB);
+    cqueue_t<u8> cqvalues(1 MiB);
     cqvalues.push_back((const u8*)values.data(), N);
 
     auto buf = malloc(12 MiB);
@@ -33,8 +33,8 @@ void test_cqutils() {
     check(parlay::is_sorted(res_keys), "Result keys are sorted");
 
     cqkeys.push_back(res_keys.data(), N);
-    CQueue<u4> unique_keys(1 MiB, true);
-    CQueue<u4> counts(1 MiB, false);
+    cqueue_t<u4> unique_keys(1 MiB);
+    cqueue_t<u4> counts(1 MiB);
     cq_count_unique(cqkeys, 1 MiB, buf, unique_keys, counts);
     size_t Nu = unique_keys.size();
     info("Found %zd unique keys", Nu);

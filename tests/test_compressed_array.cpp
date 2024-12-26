@@ -17,7 +17,7 @@ void test_compressed_array() {
 
     // create compressed array
     compressed_array_t<u4> carr(input.data(), input.size());
-    info("Compression ratio = %.2f%%", carr.nc * 100.0 / (carr.n * sizeof(u4)));
+//    info("Compression ratio = %.2f%%", carr.nc * 100.0 / (carr.n * sizeof(u4)));
 
     // decompress and check for equality
     parlay::sequence<u4> buffer(N);
@@ -37,7 +37,7 @@ void test_compressed_array() {
 
     // create compressed array
     compressed_array_t<u4> carr1(input.data(), input.size(), true);
-    info("Compression ratio = %.2f%%", carr1.nc * 100.0 / (carr1.n * sizeof(u4)));
+//    info("Compression ratio = %.2f%%", carr1.nc * 100.0 / (carr1.n * sizeof(u4)));
 
     // decompress and check for equality
     carr1.decompress(buffer.data());
