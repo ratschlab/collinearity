@@ -10,7 +10,7 @@ void test_cqueue() {
     auto input = generate_random<u4>(N<<5, N);
     parlay::sequence<u4> buffer(N);
 
-    CQueue<u4> cq(1 MiB);
+    cqueue_t<u4> cq(1 MiB);
 
     // push all at once
     cq.push_back((const u4*)input.data(), N);

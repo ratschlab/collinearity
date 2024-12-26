@@ -25,8 +25,8 @@ std::pair<index_t*, std::vector<std::string>> process_fasta(const char* fasta_fi
     if (fd < 0) error("Could not open %s because %s.", fasta_filename, strerror(errno));
     auto ks = make_kstream(fd, read, mode::in);
 
-    CQueue<u4> q_keys(BLOCK_SZ, false);
-    CQueue<u8> q_values(BLOCK_SZ, true);
+    cqueue_t<u4> q_keys(BLOCK_SZ);
+    cqueue_t<u8> q_values(BLOCK_SZ);
     size_t total_nk = 0, total_nbytes = 0;
     uint64_t ref_id = 0;
     parlay::sequence<u8> addresses;
@@ -54,8 +54,8 @@ std::pair<index_t*, std::vector<std::string>> process_fasta(const char* fasta_fi
 
     // compress by q_keys
     info("Counting unique keys..");
-    CQueue<u4> q_unique_keys(BLOCK_SZ, true);
-    CQueue<u4> q_counts(BLOCK_SZ, false);
+    cqueue_t<u4> q_unique_keys(BLOCK_SZ);
+    cqueue_t<u4> q_counts(BLOCK_SZ);
     cq_count_unique(q_keys, BLOCK_SZ, buf, q_unique_keys, q_counts);
     free(buf);
 

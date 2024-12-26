@@ -1,9 +1,9 @@
 //
-// Created by Sayan Goswami on 28.11.2024.
+// Created by Sayan Goswami on 23.12.2024.
 //
 
-#ifndef COLLINEARITY_CQUTILS_H
-#define COLLINEARITY_CQUTILS_H
+#ifndef COLLINEARITY_CQUEUE_UTILS_NEW_H
+#define COLLINEARITY_CQUEUE_UTILS_NEW_H
 
 #include <vector>
 #include <queue>
@@ -11,32 +11,52 @@
 #include "cqueue.h"
 #include "parlay_utils.h"
 
-template<typename T>
-static size_t cq_upper_bound(CQueue<T>& cQueue, size_t start, size_t end, const T& key) {
-    expect(cQueue.size() >= end);
+/**
+ * Given a range in a sorted `queue`, find the largest index in the range
+ * where `key` can be inserted without invalidating the sorted order
+ * @tparam T type of elements in `queue`
+ * @param queue queue of items sorted in ascending order
+ * @param start start of search range
+ * @param end end of search range
+ * @param key element to insert
+ * @return the largest index where `key` can be inserted into `queue[start:end]`
+ */
+template <typename T>
+static size_t cq_upper_bound(cqueue_t<T> &queue, size_t start, size_t end, const T& key) {
+    expect(queue.size() >= end);
     size_t i;
     while (start < end) {
         i = (start + end) / 2;
-        if (key < cQueue[i]) end = i;
+        if (key < queue[i]) end = i;
         else start = i + 1;
     }
     return start;
 }
 
+/**
+ * Given a range in a sorted `queue`, find the smallest index in the range
+ * where `key` can be inserted without invalidating the sorted order
+ * @tparam T type of elements in `queue`
+ * @param queue queue of items sorted in ascending order
+ * @param start start of search range
+ * @param end end of search range
+ * @param key element to insert
+ * @return the smallest index where `key` can be inserted into `queue[start:end]`
+ */
 template<typename T>
-static size_t cq_lower_bound(CQueue<T>& cQueue, size_t start, size_t end, const T& key) {
-    expect(cQueue.size() >= end);
+static size_t cq_lower_bound(cqueue_t<T>& queue, size_t start, size_t end, const T& key) {
+    expect(queue.size() >= end);
     size_t i;
     while (start < end) {
         i = (start + end) / 2;
-        if (key > cQueue[i]) start = i + 1;
+        if (key > queue[i]) start = i + 1;
         else end = i;
     }
     return start;
 }
 
-template <typename Key>
-static void cq_get_merge_partitions(CQueue<Key>& keys_A, CQueue<Key>& keys_B, const size_t M,
+template <typename K>
+static void cq_get_merge_partitions(cqueue_t<K>& keys_A, cqueue_t<K>& keys_B, const size_t M,
                                     std::vector<std::pair<size_t, size_t>>& partition_sizes) {
     const size_t nA = keys_A.size(), nB = keys_B.size();
     size_t offA = 0, offB = 0;
@@ -83,8 +103,8 @@ static void cq_get_merge_partitions(CQueue<Key>& keys_A, CQueue<Key>& keys_B, co
     }
 }
 
-template <typename Key>
-static void cq_get_partitions(CQueue<Key>& keys, const size_t M, std::vector<size_t>& partition_sizes) {
+template <typename K>
+static void cq_get_partitions(cqueue_t<K>& keys, const size_t M, std::vector<size_t>& partition_sizes) {
     const size_t n = keys.size();
     size_t off = 0;
     while (off < n) {
@@ -94,7 +114,7 @@ static void cq_get_partitions(CQueue<Key>& keys, const size_t M, std::vector<siz
         }
         else {
             size_t np = MIN(n - off, M);
-            Key key = keys[off+np-1];
+            K key = keys[off + np - 1];
             np = cq_lower_bound(keys, off, off + np, key) - off;
             partition_sizes.push_back(np);
             off += np;
@@ -102,8 +122,8 @@ static void cq_get_partitions(CQueue<Key>& keys, const size_t M, std::vector<siz
     }
 }
 
-template <typename Key>
-static void cq_get_search_partitions(CQueue<Key>& keys_A, CQueue<Key>& keys_B, const size_t M,
+template <typename K>
+static void cq_get_search_partitions(cqueue_t<K>& keys_A, cqueue_t<K>& keys_B, const size_t M,
                                      std::vector<std::pair<size_t, size_t>>& partition_sizes) {
     const size_t nA = keys_A.size(), nB = keys_B.size();
     size_t offA = 0, offB = 0;
@@ -118,7 +138,7 @@ static void cq_get_search_partitions(CQueue<Key>& keys_A, CQueue<Key>& keys_B, c
         }
 
         else {
-            Key m = MIN(keys_A[offA + nPa - 1], keys_B[offB + nPb - 1]);
+            K m = MIN(keys_A[offA + nPa - 1], keys_B[offB + nPb - 1]);
             nPa = cq_lower_bound(keys_A, offA, offA + nPa, m) - offA;
             nPb = cq_lower_bound(keys_B, offB, offB + nPb, m) - offB;
             partition_sizes.emplace_back(nPa, nPb);
@@ -132,11 +152,11 @@ static void cq_get_search_partitions(CQueue<Key>& keys_A, CQueue<Key>& keys_B, c
     }
 }
 
-template<typename Key, typename Value>
-static void cq_merge_by_key(CQueue<Key> &keys_A, CQueue<Value> &values_A,
-                            CQueue<Key> &keys_B, CQueue<Value> &values_B,
+template<typename K, typename V>
+static void cq_merge_by_key(cqueue_t<K> &keys_A, cqueue_t<V> &values_A,
+                            cqueue_t<K> &keys_B, cqueue_t<V> &values_B,
                             const size_t M, void* d_buf,
-                            CQueue<Key> &keys_C, CQueue<Value> &values_C)
+                            cqueue_t<K> &keys_C, cqueue_t<V> &values_C)
 {
     expect(keys_A.size() == values_A.size());
     expect(keys_B.size() == values_B.size());
@@ -148,8 +168,8 @@ static void cq_merge_by_key(CQueue<Key> &keys_A, CQueue<Value> &values_A,
     cq_get_merge_partitions(keys_A, keys_B, M, partition_sizes);
 
     /// merge partitions
-    auto d_keys = (Key*)d_buf;
-    auto d_values = (Value*)(d_keys + M);
+    auto d_keys = (K*)d_buf;
+    auto d_values = (V*)(d_keys + M);
     for (auto ps : partition_sizes) {
         size_t nA = ps.first, nB = ps.second, rc;
         if (nA && nB) {
@@ -172,15 +192,15 @@ static void cq_merge_by_key(CQueue<Key> &keys_A, CQueue<Value> &values_A,
     }
 }
 
-template<typename Key, typename Value>
-static void cq_sort_by_key(CQueue<Key> &keys, CQueue<Value> &values, const size_t M, void* d_buf) {
+template<typename K, typename V>
+static void cq_sort_by_key(cqueue_t<K> &keys, cqueue_t<V> &values, const size_t M, void* d_buf) {
 //    auto keys = *keys_p;
 //    auto values = *values_p;
     const size_t N = keys.size();
     expect(N == values.size());
 
-    auto d_keys = (Key*)d_buf;
-    auto d_values = (Value*)(d_keys + M);
+    auto d_keys = (K*)d_buf;
+    auto d_values = (V*)(d_keys + M);
 
     if (N <= M) {
         size_t nk = keys.pop_front(d_keys, N);
@@ -197,9 +217,9 @@ static void cq_sort_by_key(CQueue<Key> &keys, CQueue<Value> &values, const size_
     }
 
     else {
-        sitrep("Sorting blocks..");
+        debug(LOW, "Sorting blocks..");
         /// sort key-value pairs in chunks of M
-        std::queue<std::pair<CQueue<Key>, CQueue<Value>>> sorted;
+        std::queue<std::pair<cqueue_t<K>, cqueue_t<V>>> sorted;
         expect(sorted.size() == 0);
         while (true) {
             size_t nr = keys.pop_front(d_keys, M);
@@ -207,50 +227,48 @@ static void cq_sort_by_key(CQueue<Key> &keys, CQueue<Value> &values, const size_
             expect(nv == nr);
             if (!nr) break;
             sort_by_key(d_keys, d_values, nr);
-            CQueue<Key> sorted_keys(M, true);
-            CQueue<Value> sorted_values(M, false);
+            cqueue_t<K> sorted_keys(M);
+            cqueue_t<V> sorted_values(M);
             sorted_keys.push_back(d_keys, nr);
             sorted_values.push_back(d_values, nr);
             sorted.emplace(std::move(sorted_keys), std::move(sorted_values));
         }
+        debug(LOW, "Created %zd sorted lists", sorted.size());
         expect(keys.size() == 0);
         expect(values.size() == 0);
 
-        /// keep merging until we have 2 blocks left
         int merge_round = 1;
         while (sorted.size() > 2) {
-            sitrep("Merge round %d", merge_round++);
             auto kv_pair_left = std::move(sorted.front());
             sorted.pop();
             auto kv_pair_right = std::move(sorted.front());
             sorted.pop();
-            CQueue<Key> out_keys(M, true);
-            CQueue<Value> out_values(M, false);
+            cqueue_t<K> out_keys(M);
+            cqueue_t<V> out_values(M);
+            debug(LOW, "Merge round %d: %zd + %zd", merge_round++, kv_pair_left.first.size(), kv_pair_right.first.size());
             cq_merge_by_key(kv_pair_left.first, kv_pair_left.second, kv_pair_right.first, kv_pair_right.second,
                             M, d_buf, out_keys, out_values);
             sorted.push(std::make_pair(std::move(out_keys), std::move(out_values)));
+            debug(LOW, "Left with %zd sorted lists", sorted.size());
         }
 
-        sitrep("Final merge round..");
         // last 2 blocks remaining. merge
         auto kv_pair_left = std::move(sorted.front());
         sorted.pop();
         auto kv_pair_right = std::move(sorted.front());
         sorted.pop();
-        keys.set_sorted(true);
-        values.set_sorted(false);
+        debug(LOW, "Final merge round %d: %zd + %zd", merge_round, kv_pair_left.first.size(), kv_pair_right.first.size());
         cq_merge_by_key(kv_pair_left.first, kv_pair_left.second, kv_pair_right.first, kv_pair_right.second, M, d_buf, keys, values);
         expect(keys.size() == N);
         expect(values.size() == N);
-        stderrflush;
     }
 }
 
-template <typename Key>
-static void cq_count_unique(CQueue<Key> &keys, const size_t M, void* d_buf, CQueue<Key> &uniqkeys, CQueue<u4> &counts) {
+template <typename K>
+static void cq_count_unique(cqueue_t<K> &keys, const size_t M, void* d_buf, cqueue_t<K> &uniqkeys, cqueue_t<u4> &counts) {
     std::vector<size_t> partition_sizes;
     cq_get_partitions(keys, M, partition_sizes);
-    auto d_keys_in = (Key*)d_buf;
+    auto d_keys_in = (K*)d_buf;
     auto d_keys_out =d_keys_in + M;
     auto d_counts = (u4*)(d_keys_out + M);
     for (auto np : partition_sizes) {
@@ -268,40 +286,4 @@ static void cq_count_unique(CQueue<Key> &keys, const size_t M, void* d_buf, CQue
     expect(keys.size() == 0);
 }
 
-//template <typename Key, typename Value>
-//static void cq_unique_by_key(CQueue<Key> **keys_p, CQueue<Value> **values_p, const size_t M, void* d_buf) {
-//    // todo - implement
-//    auto keys = *keys_p;
-//    auto values = *values_p;
-//
-//    std::vector<size_t> partition_sizes;
-//    cq_get_partitions(*keys, M, partition_sizes);
-//
-//    auto tmp_keys = new CQueue<Key>(M, true);
-//    auto tmp_values = new CQueue<Value>(M, false);
-//    auto d_keys = (Key*)d_buf;
-//    auto d_values = (Value*)(d_keys + M);
-//
-//    size_t rc;
-//    for (auto np : partition_sizes) {
-//        rc = keys->pop_front(d_keys, np); expect(rc == np);
-//        rc = values->pop_front(d_values, np); expect(rc == np);
-//        auto new_end = thrust::unique_by_key(thrust::device, d_keys, d_keys + np, d_values);
-//        size_t new_r = new_end.first - d_keys;
-//
-//        tmp_keys->push_back(d_keys, new_r);
-//        tmp_values->push_back(d_values, new_r);
-//    }
-//
-//    expect(keys->size() == 0);
-//    expect(values->size() == 0);
-//
-//    delete keys;
-//    delete values;
-//
-//    *keys_p = tmp_keys;
-//    *values_p = tmp_values;
-//}
-
-
-#endif //COLLINEARITY_CQUTILS_H
+#endif //COLLINEARITY_CQUEUE_UTILS_NEW_H

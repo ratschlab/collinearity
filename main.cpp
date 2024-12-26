@@ -5,6 +5,7 @@ std::pair<index_t*, std::vector<std::string>> load_index(char *filename);
 void dump_index(index_t *idx, std::vector<std::string> &refnames, const char *basename);
 
 int main(int argc, char *argv[]) {
+    info("Hello!");
     const char *ref = "/scratch/Zymo/Refs-fwd-rev.fasta";
     const char *qry = "/scratch/Zymo/basecalled/fast/Sigs.fasta"; //"/scratch/Zymo/reads-tiny.fasta";
 
@@ -18,6 +19,7 @@ int main(int argc, char *argv[]) {
         if (SANITY_CHECKS) print_idx_info(idx);
         if (argc > 2) query(argv[2], KMER_LENGTH, SIGMA, BATCH_SZ, idx, refnames);
     }
+    info("Bye!");
     return 0;
 }
 

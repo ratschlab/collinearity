@@ -8,11 +8,13 @@
 #include "parlay/sequence.h"
 
 int main(int argc, char *argv[]) {
-    info("Number of threads - %d", parlay::num_thread_ids());
-    info("Number of workers - %zd", parlay::num_workers());
-    parlay::for_each(parlay::iota(32), [](size_t i){
-        printf("%zd - %zd\n", i, parlay::worker_id());
-    });
+    test_cqueue();
+    test_cqutils();
+//    info("Number of threads - %d", parlay::num_thread_ids());
+//    info("Number of workers - %zd", parlay::num_workers());
+//    parlay::for_each(parlay::iota(32), [](size_t i){
+//        printf("%zd - %zd\n", i, parlay::worker_id());
+//    });
 //    test_compressed_array();
 //    test_cqueue();
 //    test_cqutils();
