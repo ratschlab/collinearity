@@ -28,7 +28,7 @@
 // the minimum fraction of kmers required for majority vote
 const float presence_fraction = .1f;
 
-// this is the band width, I will later set this from the config
+// this is the bandwidth, I will later set this from the config
 const int bandwidth = 15;
 
 /**
@@ -40,13 +40,28 @@ const int bandwidth = 15;
 std::pair<index_t*, std::vector<std::string>> process_fasta(const char* fasta_filename, int k, int sigma);
 
 /**
- * query fasta input from index
- * @param filename
- * @param k
- * @param sigma
- * @param batch_sz
- * @param index
- * @param refnames
+ * dump index into file
+ * @param idx index
+ * @param refnames reference headers
+ * @param basename the filepath where the index will be dumped will be "{basename}.cidx"
+ */
+void dump_index(index_t *idx, std::vector<std::string> &refnames, const char *basename);
+
+/**
+ * load index from file
+ * @param filename path to the .cidx file where the index was dumped
+ * @return
+ */
+std::pair<index_t*, std::vector<std::string>> load_index(char *filename);
+
+/**
+ * query fasta input in index
+ * @param filename fasta file
+ * @param k kmer length
+ * @param sigma alphabet size
+ * @param batch_sz batch size
+ * @param index index
+ * @param refnames reference headers
  */
 void query(const char *filename, int k, int sigma, size_t batch_sz, index_t *index, std::vector<std::string> &refnames);
 

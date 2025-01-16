@@ -16,3 +16,10 @@
 [submodule "external/emhash"]
 	path = external/emhash
 	url = https://github.com/ktprime/emhash.git
+[submodule "external/pybind11"]
+	path = external/pybind11
+	url = https://github.com/pybind/pybind11.git
+	branch = stable
+[submodule "external/tiered-vector"]
+	path = external/tiered-vector
+	url = https://github.com/mettienne/tiered-vector.git

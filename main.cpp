@@ -1,8 +1,6 @@
 #include "collinearity.h"
 
 static void print_idx_info(index_t *idx);
-std::pair<index_t*, std::vector<std::string>> load_index(char *filename);
-void dump_index(index_t *idx, std::vector<std::string> &refnames, const char *basename);
 
 int main(int argc, char *argv[]) {
     info("Hello!");
