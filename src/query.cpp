@@ -4,7 +4,6 @@
 
 #include "collinearity.h"
 #include "xxhash.h"
-#include "hash_table8.hpp"
 
 #define SANITY_CHECKS 1
 
@@ -39,18 +38,6 @@ struct [[maybe_unused]] heavyhitter_cms_t {
             top_count = count, top_key = key;
     }
     void reset() { memset(buf, 0, sizeof(buf)), top_key=-1, top_count = 0; }
-};
-
-struct [[maybe_unused]] heavyhitter_ht_t {
-    emhash8::HashMap<u8,u4> counts;
-    u8 top_key = -1;
-    u4 top_count = 0;
-    void insert(const u8 key) {
-        u4 count = counts[key]++;
-        if (count > top_count)
-            top_count = count, top_key = key;
-    }
-    void reset() { counts.clear(), top_key=-1, top_count = 0; }
 };
 
 static void align(std::vector<std::string> &qry_headers, std::vector<u4> &lengths, parlay::sequence<u4> &qkeys,

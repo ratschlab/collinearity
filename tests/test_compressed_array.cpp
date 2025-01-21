@@ -3,7 +3,7 @@
 //
 
 #include "tests.h"
-#include "../compressed_array.h"
+#include "../src/compressed_array.h"
 #include <parlay/primitives.h>
 #include <parlay/parallel.h>
 

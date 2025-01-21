@@ -5,8 +5,8 @@
 #ifndef COLLINEARITY_TESTS_H
 #define COLLINEARITY_TESTS_H
 
-#include "../prelude.h"
-#include "../parlay_utils.h"
+#include "../src/prelude.h"
+#include "../src/parlay_utils.h"
 
 #define pass(fmt, ...) fprintf(stderr, "" GRN "[PASS]: " fmt RESET "\n", ##__VA_ARGS__)
 #define fail(fmt, ...) fprintf(stderr, "" RED "[FAIL]: " fmt RESET "\n", ##__VA_ARGS__)

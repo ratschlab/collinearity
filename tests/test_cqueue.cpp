@@ -3,7 +3,7 @@
 //
 
 #include "tests.h"
-#include "../cqueue.h"
+#include "../src/cqueue.h"
 
 void test_cqueue() {
     const size_t N = (16 MiB) + 123456;

@@ -6,11 +6,11 @@
 #define COLLINEARITY_PARLAY_UTILS_H
 
 #include "prelude.h"
-#include <parlay/primitives.h>
-#include <parlay/parallel.h>
-#include <parlay/sequence.h>
-#include <parlay/slice.h>
-#include <parlay/io.h>
+#include "parlay/primitives.h"
+#include "parlay/parallel.h"
+#include "parlay/sequence.h"
+#include "parlay/slice.h"
+#include "parlay/io.h"
 
 /**
  * Fill an array with value

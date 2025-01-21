@@ -40,21 +40,6 @@ const int bandwidth = 15;
 std::pair<index_t*, std::vector<std::string>> process_fasta(const char* fasta_filename, int k, int sigma);
 
 /**
- * dump index into file
- * @param idx index
- * @param refnames reference headers
- * @param basename the filepath where the index will be dumped will be "{basename}.cidx"
- */
-void dump_index(index_t *idx, std::vector<std::string> &refnames, const char *basename);
-
-/**
- * load index from file
- * @param filename path to the .cidx file where the index was dumped
- * @return
- */
-std::pair<index_t*, std::vector<std::string>> load_index(char *filename);
-
-/**
  * query fasta input in index
  * @param filename fasta file
  * @param k kmer length
@@ -74,6 +59,16 @@ static parlay::sequence<u4> create_kmers(const std::string& sequence, int k, int
         for (int j = 0; j < k; ++j) kmer = kmer * sigma + encode_dna(sequence[i+j]);
         return kmer;
     });
+}
+
+static void print_idx_info(index_t *idx) {
+    auto counts_copy = parlay::integer_sort(idx->counts);
+    auto start = lower_bound<u4>(counts_copy.data(), 0, counts_copy.size(), 1);
+    size_t nk = counts_copy.size() - start;
+    info("# kmers = %zd", nk);
+    info("Min occ. = %u", counts_copy[start]? counts_copy[start] : counts_copy[start+1]);
+    info("Median occ. = %u", counts_copy[start + nk / 2]);
+    info("Max occ. = %u", counts_copy.back());
 }
 
 #endif //COLLINEARITY_COLLINEARITY_H

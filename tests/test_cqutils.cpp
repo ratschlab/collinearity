@@ -3,7 +3,7 @@
 //
 
 #include "tests.h"
-#include "../cqutils.h"
+#include "../src/cqutils.h"
 
 void test_cqutils() {
     const size_t N = (4 MiB) + 123456;
