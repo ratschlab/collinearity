@@ -9,6 +9,8 @@
 #include "prelude.h"
 #include "compressed_array.h"
 
+#define BLOCK_SZ (256 MiB)
+
 template <typename T>
 struct cqueue_t {
     struct block_t {
@@ -17,7 +19,7 @@ struct cqueue_t {
         block_t(const block_t&) = delete;
         block_t& operator = (const block_t&) = delete;
         block_t(block_t &&other) = default;
-        explicit block_t(size_t B) { data.resize(B); }
+        block_t() { data.resize(BLOCK_SZ); }
 
         /** how many items can I push to the buffer */
         inline size_t pushable_size() { return data.size() - end; }
@@ -59,9 +61,8 @@ private:
     size_t _size = 0;
     std::deque<block_t> blocks;
 public:
-    const size_t B;
     inline size_t size() { return _size; }
-    explicit cqueue_t(size_t block_sz): B(block_sz) {}
+    cqueue_t() = default;
     cqueue_t(const cqueue_t<T>&) = delete;
     cqueue_t<T>& operator = (const cqueue_t<T>&) = delete;
     cqueue_t(cqueue_t<T> &&other) = default;
@@ -75,7 +76,7 @@ public:
         auto arr = (T*)src;
         size_t n_remaining = n_elements;
         while (n_remaining) {
-            if (blocks.empty() || !blocks.back().is_pushable()) blocks.emplace_back(B);
+            if (blocks.empty() || !blocks.back().is_pushable()) blocks.emplace_back();
             size_t n = blocks.back().push(arr, n_remaining);
             arr += n, n_remaining -= n, _size += n;
         }
@@ -136,12 +137,12 @@ public:
      * @return the element at index i
      */
     const T& operator[](const size_t i) const {
-        if (i < _size) return blocks[i / B].data[i % B];
+        if (i < _size) return blocks[i / BLOCK_SZ].data[i % BLOCK_SZ];
         else error("Array index out of bounds.");
     }
 
     T operator[](const size_t i) {
-        if (i < _size) return blocks[i / B].data[i % B];
+        if (i < _size) return blocks[i / BLOCK_SZ].data[i % BLOCK_SZ];
         else error("Array index out of bounds.");
     }
 };

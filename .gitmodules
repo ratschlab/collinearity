@@ -23,3 +23,6 @@
 [submodule "external/tiered-vector"]
 	path = external/tiered-vector
 	url = https://github.com/mettienne/tiered-vector.git
+[submodule "external/slow5lib"]
+	path = external/slow5lib
+	url = https://github.com/hasindu2008/slow5lib.git

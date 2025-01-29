@@ -227,8 +227,8 @@ static void cq_sort_by_key(cqueue_t<K> &keys, cqueue_t<V> &values, const size_t 
             expect(nv == nr);
             if (!nr) break;
             sort_by_key(d_keys, d_values, nr);
-            cqueue_t<K> sorted_keys(M);
-            cqueue_t<V> sorted_values(M);
+            cqueue_t<K> sorted_keys;
+            cqueue_t<V> sorted_values;
             sorted_keys.push_back(d_keys, nr);
             sorted_values.push_back(d_values, nr);
             sorted.emplace(std::move(sorted_keys), std::move(sorted_values));
@@ -243,8 +243,8 @@ static void cq_sort_by_key(cqueue_t<K> &keys, cqueue_t<V> &values, const size_t 
             sorted.pop();
             auto kv_pair_right = std::move(sorted.front());
             sorted.pop();
-            cqueue_t<K> out_keys(M);
-            cqueue_t<V> out_values(M);
+            cqueue_t<K> out_keys;
+            cqueue_t<V> out_values;
             debug(LOW, "Merge round %d: %zd + %zd", merge_round++, kv_pair_left.first.size(), kv_pair_right.first.size());
             cq_merge_by_key(kv_pair_left.first, kv_pair_left.second, kv_pair_right.first, kv_pair_right.second,
                             M, d_buf, out_keys, out_values);

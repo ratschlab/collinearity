@@ -13,6 +13,7 @@ include_directories(external/emhash)
 add_subdirectory(external/streamvbyte)
 add_subdirectory(external/kseqpp)
 add_subdirectory(external/pybind11)
+add_subdirectory(external/slow5lib)
 
 #set(Python3_EXECUTABLE /home/sayan/.virtualenvs/SequenceAnalysis/bin/python3)
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
@@ -21,7 +22,14 @@ message(STATUS "Python3_INCLUDE_DIRS: ${Python3_INCLUDE_DIRS}")
 message(STATUS "Python3_LIBRARIES: ${Python3_LIBRARIES}")
 
 set(PYBIND11_FINDPYTHON ON)
-pybind11_add_module(_core src/index_refs.cpp src/pybindings.cpp)
+pybind11_add_module(_core
+        src/index_refs.cpp
+        src/query.cpp
+        src/tstatsegmentation.cpp
+        src/rawreferences.cpp
+        src/rawsegmentation.cpp
+        src/rawsignals.cpp
+        src/pybindings.cpp)
 
 add_library(collinear STATIC
         src/prelude.h
@@ -37,7 +45,13 @@ add_executable(Collinearity src/main.cpp
         src/query.cpp
         src/collinearity.h
         src/index.h
-        src/xxhash.h
+        src/rawsignals.h
+        src/tstatsegmentation.cpp
+        src/rawreferences.cpp
+        src/rawsegmentation.cpp
+        src/rawsignals.cpp
+        src/config.h
+        src/utils.h
 )
 add_executable(tests
         tests/testmain.cpp
@@ -49,10 +63,10 @@ add_executable(tests
 
 target_compile_options(collinear PRIVATE -fpermissive -mavx)
 target_compile_options(Collinearity PRIVATE -fpermissive)
-target_link_libraries(Collinearity collinear z)
+target_link_libraries(Collinearity collinear slow5 z)
 
 target_compile_options(tests PRIVATE -fpermissive)
 target_link_libraries(tests collinear z)
 
-target_link_libraries(_core PUBLIC collinear z)
+target_link_libraries(_core PUBLIC collinear slow5 z)
 install(TARGETS _core DESTINATION pycollinearity)

@@ -3,54 +3,28 @@
 //
 
 #include "collinearity.h"
-#include "xxhash.h"
+#include "../external/slow5lib/include/slow5/slow5.h"
 
 #define SANITY_CHECKS 1
 
 using namespace klibpp;
 
-// CMS estimate is within .8 percent of the count with a 99.5 percent probability
-#define CMS_ERROR_RATE .008
-#define CMS_CONFIDENCE .995
-#define LOG_TWO 0.6931471805599453
-// width = ceil(2 / error_rate)
-#define CMS_WIDTH 1021
-//const int CMS_WIDTH = (int)ceil(2.0/CMS_ERROR_RATE);
-// depth = ceil((-1 * log(1 - confidence)) / LOG_TWO)
-#define CMS_DEPTH 8
-//const int CMS_DEPTH = (int)ceil((-1 * log(1 - CMS_CONFIDENCE)) / LOG_TWO);
+static void align(const std::vector<std::string> &qry_headers, const std::vector<u4> &lengths,
+                  const parlay::sequence<u4> &qkeys, index_t &index);
+static void align_raw(const std::vector<std::string> &qry_headers, const std::vector<u4> &lengths,
+                      const std::vector<double> &digitizations, const std::vector<double> &offsets,
+                      const std::vector<double> &ranges,
+                      parlay::sequence<int16_t > &raw_signals,
+                      index_t &index, int k, int sigma);
+static inline void print_alignments(const std::vector<std::string> &qry_headers, const std::vector<std::string> &trg_headers,
+                                    const parlay::sequence<u4> &trg_ids, const parlay::sequence<u8> &trg_posns);
 
-struct [[maybe_unused]] heavyhitter_cms_t {
-    u1 buf[CMS_DEPTH][CMS_WIDTH] = {0};
-    u8 top_key = -1;
-    u2 top_count = 0;
-    void insert(const u8 key) {
-        u2 count = -1;
-        for (int i = 0; i < CMS_DEPTH; i+=2) {
-            u8 hash = XXH64_hash64(key, i);
-            u4 l1 = ((u4)hash) % CMS_WIDTH, l2 = ((u4)(hash>>32)) % CMS_WIDTH;
-            buf[i][l1]++;
-            buf[i+1][l2]++;
-            count = MIN(count, buf[i][l1]);
-            count = MIN(count, buf[i+1][l2]);
-        }
-        if (count > top_count)
-            top_count = count, top_key = key;
-    }
-    void reset() { memset(buf, 0, sizeof(buf)), top_key=-1, top_count = 0; }
-};
-
-static void align(std::vector<std::string> &qry_headers, std::vector<u4> &lengths, parlay::sequence<u4> &qkeys,
-                  std::vector<std::string> &trg_headers, index_t *index, heavyhitter_ht_t *hhs);
-static inline void print_alignments(std::vector<std::string> &qry_headers, std::vector<std::string> &trg_headers,
-                                    parlay::sequence<u4> &trg_ids, parlay::sequence<u8> &trg_posns);
-
-void query(const char *filename, int k, int sigma, const size_t batch_sz, index_t *index, std::vector<std::string> &refnames) {
+void query(const char *filename, int k, int sigma, const size_t batch_sz, index_t &index) {
     // 1. read sequences in a batch
     // 2. create key-value pairs
     // 3. find collinear chains
 
-    heavyhitter_ht_t hhs[batch_sz];
+    index.init_query_buffers();
     std::vector<std::string> headers;
     std::vector<u4> lengths;
     headers.reserve(batch_sz);
@@ -67,7 +41,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
     while (ks >> record) {
         if (record.seq.size() > k) {
             headers.push_back(record.name);
-            auto kmers = create_kmers(record.seq, k, sigma);
+            auto kmers = create_kmers(record.seq, k, sigma, encode_dna);
             qKeys.append(kmers.begin(), kmers.end());
             lengths.push_back(kmers.size());
             nr++;
@@ -75,7 +49,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
                 // query
                 expect(headers.size() == nr);
                 expect(lengths.size() == nr);
-                align(headers, lengths, qKeys, refnames, index, hhs);
+                align(headers, lengths, qKeys, index);
                 total_nr += nr;
                 sitrep("%lu", total_nr);
                 nr = 0;
@@ -89,7 +63,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
         // query
         expect(headers.size() == nr);
         expect(lengths.size() == nr);
-        align(headers, lengths, qKeys, refnames, index, hhs);
+        align(headers, lengths, qKeys, index);
         total_nr += nr;
         sitrep("%lu", total_nr);
         nr = 0;
@@ -102,53 +76,127 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
     info("Done.");
 }
 
-static void align(std::vector<std::string> &qry_headers, std::vector<u4> &lengths, parlay::sequence<u4> &qkeys,
-                  std::vector<std::string> &trg_headers, index_t *index, heavyhitter_ht_t *hhs) {
+void query_raw(const char *filename, int k, int sigma, const size_t batch_sz, index_t &index) {
+    index.init_query_buffers();
+    std::vector<std::string> headers;
+    std::vector<u4> lengths;
+    std::vector<double> digitizations, offsets, ranges;
+    headers.reserve(batch_sz);
+    lengths.reserve(batch_sz);
+    digitizations.reserve(batch_sz), offsets.reserve(batch_sz), ranges.reserve(batch_sz);
+
+    parlay::sequence<int16_t> raw_signals;
+
+    int nr = 0;
+    u8 total_nr = 0;
+
+    auto sp = slow5_open(filename, "r");
+    if (!sp) error("Could not open file %s", filename);
+
+    slow5_rec_t *rec = nullptr; //slow5 record to be read
+    int ret=0; //for return value
+
+    //iterate through the file until end
+    while((ret = slow5_get_next(&rec,sp)) >= 0){
+        headers.emplace_back(rec->read_id);
+        lengths.push_back(rec->len_raw_signal);
+        digitizations.push_back(rec->digitisation);
+        offsets.push_back(rec->offset);
+        ranges.push_back(rec->range);
+        raw_signals.append(rec->raw_signal, rec->raw_signal + rec->len_raw_signal);
+        //double pA = TO_PICOAMPS(rec->raw_signal[i],rec->digitisation,rec->offset,rec->range);
+        nr++;
+        if (nr == batch_sz) {
+            // query
+            expect(headers.size() == nr);
+            expect(lengths.size() == nr);
+            align_raw(headers, lengths, digitizations, offsets, ranges, raw_signals, index, k, sigma);
+            total_nr += nr;
+            sitrep("%lu", total_nr);
+            nr = 0;
+            headers.clear(), lengths.clear(); digitizations.clear(), ranges.clear(), offsets.clear(), raw_signals.clear();
+        }
+    }
+
+    if (nr) {
+        // query
+        expect(headers.size() == nr);
+        expect(lengths.size() == nr);
+        align_raw(headers, lengths, digitizations, offsets, ranges, raw_signals, index, k, sigma);
+        total_nr += nr;
+        sitrep("%lu", total_nr);
+        nr = 0;
+        headers.clear(), lengths.clear(); digitizations.clear(), ranges.clear(), offsets.clear(), raw_signals.clear();
+    }
+    stderrflush;
+
+    if(ret != SLOW5_ERR_EOF)  //check if proper end of file has been reached
+        error("Error in slow5_get_next. Error code %d\n",ret);
+
+    //free the SLOW5 record
+    slow5_rec_free(rec);
+
+    //close the SLOW5 file
+    slow5_close(sp);
+}
+
+static void align(const std::vector<std::string> &qry_headers, const std::vector<u4> &lengths,
+                  const parlay::sequence<u4> &qkeys, index_t &index) {
     const auto B = qry_headers.size();
     expect(B == lengths.size());
     auto qry_offsets = parlay::scan(lengths);
     parlay::sequence<u4> trg_ref_id(B);
     parlay::sequence<u8> trg_pos(B);
+    parlay::sequence<float> presence(B);
 
     parlay::for_each(parlay::iota(B), [&](size_t i){
-        auto &hh = hhs[i];
-        hh.reset();
         auto qry_offset = qry_offsets.first[i];
         auto qry_size = lengths[i];
-        for (u4 qry_pos = 0, j = qry_offset; j < qry_offset + qry_size; ++j, ++qry_pos) {
-            const auto &[vbegin, vend] = index->get(qkeys[j]);
-            for (auto v = vbegin; v != vend; ++v) {
-                u8 ref_id = get_id_from(*v);
-                u8 ref_pos = get_pos_from(*v);
-                u8 intercept = (ref_pos > qry_pos) ? (ref_pos - qry_pos) : 0;
-                intercept /= bandwidth;
-                u8 key = make_key_from(ref_id, intercept);
-                hh.insert(key);
-                if (intercept >= bandwidth) {
-                    intercept -= bandwidth;
-                    key = make_key_from(ref_id, intercept);
-                    hh.insert(key);
-                }
-            }
-        }
-        // in this case, discovery_fraction is the frac. of kmers that support an intercept
-        if ((hh.top_count * 1.0) / qry_size >= presence_fraction) {
-            trg_ref_id[i] = get_id_from(hh.top_key);
-            trg_pos[i] = get_pos_from(hh.top_key) * bandwidth;
-        } else {
-            trg_ref_id[i] = -1;
-            trg_pos[i] = -1;
-        }
+        std::tie(trg_ref_id[i], trg_pos[i], presence[i]) = index.search(qkeys.data() + qry_offset, qry_size);
     });
-    print_alignments(qry_headers, trg_headers, trg_ref_id, trg_pos);
+    print_alignments(qry_headers, index.headers, trg_ref_id, trg_pos);
 }
 
-static inline void print_alignments(std::vector<std::string> &qry_headers, std::vector<std::string> &trg_headers,
-                             parlay::sequence<u4> &trg_ids, parlay::sequence<u8> &trg_posns) {
+static inline void print_alignments(const std::vector<std::string> &qry_headers, const std::vector<std::string> &trg_headers,
+                             const parlay::sequence<u4> &trg_ids, const parlay::sequence<u8> &trg_posns) {
     for (u4 i = 0; i < qry_headers.size(); ++i){
-        if (trg_ids[i] == -1 && trg_posns[i] == -1)
+        if (trg_ids[i] == (u4)-1)
             printf("%s\t*\t0\n", qry_headers[i].c_str());
         else
             printf("%s\t%s\t%ld\n", qry_headers[i].c_str(), trg_headers[trg_ids[i]].c_str(), trg_posns[i]);
     }
+}
+
+static void align_raw(const std::vector<std::string> &qry_headers, const std::vector<u4> &lengths,
+                      const std::vector<double> &digitizations, const std::vector<double> &offsets,
+                      const std::vector<double> &ranges,
+                      parlay::sequence<int16_t > &raw_signals,
+                      index_t &index, const int k, const int sigma) {
+    const auto B = qry_headers.size();
+    expect(B == lengths.size());
+    const auto [qry_offsets, total_qry_len] = parlay::scan(lengths);
+    parlay::sequence<u4> trg_ref_id(B);
+    parlay::sequence<u8> trg_pos(B);
+    parlay::sequence<float> presence(B);
+
+    parlay::for_each(parlay::iota(B), [&](size_t i) {
+        auto qry_offset = qry_offsets[i];
+        auto signal_length = lengths[i];
+        auto signal_digitization = digitizations[i];
+        auto signal_offset = offsets[i];
+        auto signal_range = ranges[i];
+        parlay::sequence<double> calibrated_signal(signal_length);
+        for (int j = 0; j < signal_length; ++j) {
+            calibrated_signal[j] = TO_PICOAMPS(raw_signals[qry_offset + j], signal_digitization, signal_offset,
+                                               signal_range);
+        }
+        tstat_segmenter_t segmenter;
+        auto events = generate_events(calibrated_signal, segmenter);
+        auto quantized = quantize_signal(events);
+        parlay::sequence<u4> keys(quantized.size() - k + 1);
+        for (int j = 0; j < quantized.size() - k + 1; ++j)
+            keys[j] = encode_kmer(quantized.data() + j, k, sigma, encode_qsig);
+        std::tie(trg_ref_id[i], trg_pos[i], presence[i]) = index.search(keys.data(), keys.size());
+    });
+    print_alignments(qry_headers, index.headers, trg_ref_id, trg_pos);
 }

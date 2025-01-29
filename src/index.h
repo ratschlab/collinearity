@@ -13,51 +13,27 @@
 #include "tsl/hopscotch_map.h"
 #include "hash_table8.hpp"
 
+#ifdef NDEBUG
+#define SANITY_CHECKS 0
+#else
 #define SANITY_CHECKS 1
+#endif
 
-#define NKEYS (1<<(KMER_LENGTH<<1))
+// I am assuming that the number of sequences won't exceed 2^20 (1M)
+// and the longest sequence won't be longer than 2^40 (1T)
+// if that's not the case, change the following line accordingly
+#define ref_id_nbits 20
+#define ref_len_nbits (64 - ref_id_nbits)
+#define ref_id_bitmask (((1ULL) << ref_len_nbits) - 1)
+#define make_key_from(id, pos) (((u8)(id)) << (ref_len_nbits) | (pos))
+#define get_id_from(key) ((key) >> ref_len_nbits)
+#define get_pos_from(key) ((key) & ref_id_bitmask)
 
-struct index_t {
-    std::vector<u4> counts;
-    std::vector<u8> offsets, values;
-    index_t() = default;
-    index_t(cqueue_t<u4> &qkeys, cqueue_t<u4> &qcounts, cqueue_t<u8> &qvalues) {
-        values.resize(NKEYS);
-        size_t nk = qkeys.size();
-        size_t nv = qvalues.size();
-        expect(nk == qcounts.size());
-        std::vector<u4> keys(nk), n_values(nk);
-        qkeys.pop_front(keys.data(), nk);
-        qcounts.pop_front(n_values.data(), nk);
-        if (SANITY_CHECKS) {
-            size_t total = 0;
-            for (auto c: n_values) total += c;
-            expect(total == nv);
-        }
+// the minimum fraction of kmers required for majority vote
+const float presence_fraction = .1f;
 
-        info("Allocating memory for coordinates..");
-        values.resize(nv);
-
-        info("Consolidating coordinates..");
-        qvalues.pop_front(values.data(), values.size());
-        counts.resize(NKEYS);
-        offsets.resize(NKEYS);
-        std::fill(counts.begin(), counts.end(), 0);
-        std::fill(offsets.begin(), offsets.end(), 0);
-        parlay::for_each(parlay::iota(nk), [&](size_t i){
-            auto key = keys[i];
-            counts[key] = n_values[i];
-            offsets[key] = n_values[i];
-        });
-        size_t c = parlay::scan_inplace(offsets);
-        verify(c == values.size());
-        info("Done");
-    }
-
-    std::pair<u8*, u8*> get(u4 key) {
-        return std::make_pair(values.data()+offsets[key], values.data()+offsets[key]+counts[key]);
-    }
-};
+// this is the bandwidth, I will later set this from the config
+const int bandwidth = 15;
 
 struct [[maybe_unused]] heavyhitter_ht_t {
     emhash8::HashMap<u8,u4> counts;
@@ -71,82 +47,188 @@ struct [[maybe_unused]] heavyhitter_ht_t {
     void reset() { counts.clear(), top_key=-1, top_count = 0; }
 };
 
-/**
- * dump index into file
- * @param idx index
- * @param refnames reference headers
- * @param basename the filepath where the index will be dumped will be "{basename}.cidx"
- */
-static void dump_index(index_t *idx, std::vector<std::string> &refnames, const char *basename) {
-    info("Dumping index.");
-    std::string filename = std::string(basename) + std::string(".cidx");
-    FILE *fp = fopen(filename.c_str(), "wb");
-    if (!fp) error("Could not open %s because %s", filename.c_str(), strerror(errno));
-
-    size_t n = refnames.size();
-    info("Dumping %zd refnames..", n);
-    fwrite(&n, sizeof(n), 1, fp);
-    std::vector<u2> refnamelens(n);
-    for (int i = 0; i < n; ++i) refnamelens[i] = refnames[i].size();
-    fwrite(refnamelens.data(), sizeof(u2), n, fp);
-    for (const auto& refname : refnames) {
-        n = refname.size();
-        fwrite(refname.c_str(), n, 1, fp);
+static u8 ipow(u8 base, u8 exp) {
+    u8 result = 1;
+    for (;;) {
+        if (exp & 1)
+            result *= base;
+        exp >>= 1;
+        if (!exp)
+            break;
+        base *= base;
     }
-
-    n = idx->counts.size();
-    info("Dumping %zd counts and offsets..", n);
-    fwrite(&n, sizeof(n), 1, fp);
-    fwrite(idx->counts.data(), sizeof(u4), n, fp);
-    fwrite(idx->offsets.data(), sizeof(u8), n, fp);
-
-    n = idx->values.size();
-    info("Dumping %zd values..", n);
-    fwrite(&n, sizeof(n), 1, fp);
-    fwrite(idx->values.data(), sizeof(u8), n, fp);
-    fclose(fp);
-    info("Done.");
+    return result;
 }
 
-/**
- * load index from file
- * @param filename path to the .cidx file where the index was dumped
- * @return a pair of index and headers
- */
-static std::pair<index_t*, std::vector<std::string>> load_index(char *filename) {
-    info("Loading index.");
-    FILE *fp = fopen(filename, "rb");
-    if (!fp) error("Could not open %s because %s", filename, strerror(errno));
+struct index_t {
+    const u4 k, nkeys;
+    std::vector<u4> counts;
+    std::vector<u8> offsets, values;
+    cqueue_t<u4> q_keys, q_counts;
+    cqueue_t<u8> q_values;
+    std::vector<std::string> headers;
+    heavyhitter_ht_t *hhs = nullptr;
 
-    size_t n;
-    fread(&n, sizeof(n), 1, fp);
-    info("Loading %zd refnames..", n);
-    std::vector<u2> refnamelens(n);
-    fread(refnamelens.data(), sizeof(u2), n, fp);
+    explicit index_t(int k, int sigma): k(k), nkeys(ipow(sigma, k)) {}
 
-    std::vector<std::string> refnames;
-    char buffer[4096];
-    for (int i = 0; i < n; ++i) {
-        size_t l = refnamelens[i];
-        fread(buffer, l, 1, fp);
-        refnames.emplace_back(buffer, l);
+    void add(std::string &name, parlay::sequence<u4> &keys, parlay::sequence<u8> &addresses) {
+        headers.push_back(name);
+        q_keys.push_back(keys.data(), keys.size());
+        q_values.push_back(addresses.data(), addresses.size());
     }
 
-    auto *idx = new index_t;
-    fread(&n, sizeof(n), 1, fp);
-    info("Loading %zd counts and offsets..", n);
-    idx->counts.resize(n);
-    idx->offsets.resize(n);
-    fread(idx->counts.data(), sizeof(u4), n, fp);
-    fread(idx->offsets.data(), sizeof(u8), n, fp);
+    void build() {
+        info("Sorting..");
+        auto buf = malloc(12ULL * BLOCK_SZ);
+        cq_sort_by_key(q_keys, q_values, BLOCK_SZ, buf);
 
-    fread(&n, sizeof(n), 1, fp);
-    info("Loading %zd values..", n);
-    idx->values.resize(n);
-    fread(idx->values.data(), sizeof(u8), n, fp);
+        // compress by q_keys
+        info("Counting unique keys..");
+        cqueue_t<u4> q_unique_keys;
+        cq_count_unique(q_keys, BLOCK_SZ, buf, q_unique_keys, q_counts);
+        free(buf);
 
-    fclose(fp);
-    return std::make_pair(idx, std::move(refnames));
-}
+        values.resize(nkeys);
+        size_t nk = q_unique_keys.size();
+        size_t nv = q_values.size();
+        expect(nk == q_counts.size());
+        std::vector<u4> keys(nk), n_values(nk);
+        q_unique_keys.pop_front(keys.data(), nk);
+        q_counts.pop_front(n_values.data(), nk);
+        if (SANITY_CHECKS) {
+            size_t total = 0;
+            for (auto c: n_values) total += c;
+            expect(total == nv);
+        }
+
+        info("Allocating memory for coordinates..");
+        values.resize(nv);
+
+        info("Consolidating coordinates..");
+        q_values.pop_front(values.data(), values.size());
+        counts.resize(nkeys);
+        offsets.resize(nkeys);
+        std::fill(counts.begin(), counts.end(), 0);
+        std::fill(offsets.begin(), offsets.end(), 0);
+        parlay::for_each(parlay::iota(nk), [&](size_t i){
+            auto key = keys[i];
+            counts[key] = n_values[i];
+            offsets[key] = n_values[i];
+        });
+        size_t c = parlay::scan_inplace(offsets);
+        verify(c == values.size());
+        info("Done");
+    }
+
+    void print_info() {
+        auto counts_copy = parlay::integer_sort(counts);
+        auto start = lower_bound<u4>(counts_copy.data(), 0, counts_copy.size(), 1);
+        size_t nk = counts_copy.size() - start;
+        info("# kmers = %zd", nk);
+        info("Min occ. = %u", counts_copy[start]? counts_copy[start] : counts_copy[start+1]);
+        info("Median occ. = %u", counts_copy[start + nk / 2]);
+        info("Max occ. = %u", counts_copy.back());
+    }
+
+    void init_query_buffers() {hhs = new heavyhitter_ht_t[parlay::num_workers()];}
+
+    std::tuple<u4, u4, float> search(const u4 *keys, const size_t n_keys) {
+        const auto i = parlay::worker_id();
+        auto &hh = hhs[i];
+        hh.reset();
+
+        for (u4 j = 0; j < n_keys; ++j) {
+            const auto &[vbegin, vend] = get(keys[j]);
+            for (auto v = vbegin; v != vend; ++v) {
+                u8 ref_id = get_id_from(*v);
+                u8 ref_pos = get_pos_from(*v);
+                u8 intercept = (ref_pos > j) ? (ref_pos - j) : 0;
+                intercept /= bandwidth;
+                u8 key = make_key_from(ref_id, intercept);
+                hh.insert(key);
+                if (intercept >= bandwidth) {
+                    intercept -= bandwidth;
+                    key = make_key_from(ref_id, intercept);
+                    hh.insert(key);
+                }
+            }
+        }
+
+        // in this case, presence_fraction is the frac. of kmers that support an intercept
+        float presence = (hh.top_count * 1.0) / n_keys;
+        if (presence >= presence_fraction)
+            return std::make_tuple(get_id_from(hh.top_key), get_pos_from(hh.top_key) * bandwidth, presence);
+        else return std::make_tuple(-1, -1, 0.0f);
+    }
+
+    std::pair<u8*, u8*> get(u4 key) {
+        return std::make_pair(values.data()+offsets[key], values.data()+offsets[key]+counts[key]);
+    }
+
+    void dump(const std::string& basename) {
+        info("Dumping index.");
+        std::string filename = basename + ".cidx";
+        FILE *fp = fopen(filename.c_str(), "wb");
+        if (!fp) error("Could not open %s because %s", filename.c_str(), strerror(errno));
+
+        size_t n = headers.size();
+        info("Dumping %zd refnames..", n);
+        fwrite(&n, sizeof(n), 1, fp);
+        std::vector<u2> refnamelens(n);
+        for (int i = 0; i < n; ++i) refnamelens[i] = headers[i].size();
+        fwrite(refnamelens.data(), sizeof(u2), n, fp);
+        for (const auto& refname : headers) {
+            n = refname.size();
+            fwrite(refname.c_str(), n, 1, fp);
+        }
+
+        n = counts.size();
+        info("Dumping %zd counts and offsets..", n);
+        fwrite(&n, sizeof(n), 1, fp);
+        fwrite(counts.data(), sizeof(u4), n, fp);
+        fwrite(offsets.data(), sizeof(u8), n, fp);
+
+        n = values.size();
+        info("Dumping %zd values..", n);
+        fwrite(&n, sizeof(n), 1, fp);
+        fwrite(values.data(), sizeof(u8), n, fp);
+        fclose(fp);
+        info("Done.");
+    }
+
+    void load(const std::string& basename) {
+        info("Loading index.");
+        std::string filename = basename + ".cidx";
+        FILE *fp = fopen(filename.c_str(), "rb");
+        if (!fp) error("Could not open %s because %s", filename.c_str(), strerror(errno));
+
+        size_t n;
+        fread(&n, sizeof(n), 1, fp);
+        info("Loading %zd refnames..", n);
+        std::vector<u2> refnamelens(n);
+        fread(refnamelens.data(), sizeof(u2), n, fp);
+
+        char buffer[4096];
+        for (int i = 0; i < n; ++i) {
+            size_t l = refnamelens[i];
+            fread(buffer, l, 1, fp);
+            headers.emplace_back(buffer, l);
+        }
+
+        fread(&n, sizeof(n), 1, fp);
+        info("Loading %zd counts and offsets..", n);
+        counts.resize(n);
+        offsets.resize(n);
+        fread(counts.data(), sizeof(u4), n, fp);
+        fread(offsets.data(), sizeof(u8), n, fp);
+
+        fread(&n, sizeof(n), 1, fp);
+        info("Loading %zd values..", n);
+        values.resize(n);
+        fread(values.data(), sizeof(u8), n, fp);
+
+        fclose(fp);
+    }
+};
 
 #endif //COLLINEARITY_INDEX_H

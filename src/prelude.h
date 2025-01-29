@@ -16,6 +16,7 @@
 #include <fcntl.h>
 #include <cassert>
 #include <string>
+#include <cstring>
 
 #define RED   "\x1B[31m"
 #define GRN   "\x1B[32m"
@@ -69,12 +70,12 @@ static char *time_str(){
 #define alignup(n, a) (((n) + (a)-1) & ~((a)-1))
 
 #ifdef NDEBUG
-#define expect(expression) if (!(expression)) error("Expected " #expression "")
-#define verify(expression) if (SANITY_CHECKS && !(expression)) error("Expected " #expression "")
-#else
-#define expect(expression)
 #define verify(expression)
+#else
+#define verify(expression) if (SANITY_CHECKS && !(expression)) error("Expected " #expression "")
 #endif
+
+#define expect(expression) if (!(expression)) error("Expected " #expression "")
 
 /// aliases and typedefs
 typedef uint8_t u1;
@@ -93,13 +94,14 @@ typedef uint64_t u8;
 #define alignup(n, a) (((n) + (a)-1) & ~((a)-1))
 
 /** string macros */
-#define streq(s1, s2) (!strcmp((s1), (s2)))
+#define streq(s1, s2) (!std::strcmp((s1), (s2)))
 #define str_endswith(str, suffix) (streq((suffix), (str) + (strlen(str) - strlen(suffix))))
+#define str_startswith(str, prefix)
 
 
 // K is hardcoded here. change later
-#define KMER_LENGTH 15
-#define SIGMA 4
+//#define KMER_LENGTH 15
+//#define SIGMA 4
 #define BATCH_SZ 4096
 
 #endif //COLLINEARITY_PRELUDE_H
