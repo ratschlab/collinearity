@@ -10,7 +10,7 @@
 using namespace klibpp;
 
 static void align(const std::vector<std::string> &qry_headers, const std::vector<u4> &lengths,
-                  const parlay::sequence<u4> &qkeys, index_t &index);
+                  const parlay::sequence<u4> &qkeys, sindex_t &index);
 static void align_raw(const std::vector<std::string> &qry_headers, const std::vector<u4> &lengths,
                       const std::vector<double> &digitizations, const std::vector<double> &offsets,
                       const std::vector<double> &ranges,
@@ -19,7 +19,7 @@ static void align_raw(const std::vector<std::string> &qry_headers, const std::ve
 static inline void print_alignments(const std::vector<std::string> &qry_headers, const std::vector<std::string> &trg_headers,
                                     const parlay::sequence<u4> &trg_ids, const parlay::sequence<u8> &trg_posns);
 
-void query(const char *filename, int k, int sigma, const size_t batch_sz, index_t &index) {
+void query(const char *filename, int k, int sigma, const size_t batch_sz, sindex_t &index) {
     // 1. read sequences in a batch
     // 2. create key-value pairs
     // 3. find collinear chains
@@ -145,7 +145,7 @@ void query_raw(const char *filename, int k, int sigma, const size_t batch_sz, si
 }
 
 static void align(const std::vector<std::string> &qry_headers, const std::vector<u4> &lengths,
-                  const parlay::sequence<u4> &qkeys, index_t &index) {
+                  const parlay::sequence<u4> &qkeys, sindex_t &index) {
     const auto B = qry_headers.size();
     expect(B == lengths.size());
     auto qry_offsets = parlay::scan(lengths);

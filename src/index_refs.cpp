@@ -8,8 +8,8 @@
 
 using namespace klibpp;
 
-index_t process_fasta(const char* fasta_filename, int k, int sigma) {
-    index_t index(k, sigma);
+sindex_t process_fasta(const char* fasta_filename, int k, int sigma) {
+    sindex_t index;
     KSeq record;
     auto fd = open(fasta_filename, O_RDONLY);
     if (fd < 0) error("Could not open %s because %s.", fasta_filename, strerror(errno));

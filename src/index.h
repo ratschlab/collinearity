@@ -135,8 +135,8 @@ struct sindex_t {
         for (int i = 0; i < offsets.size()-1; ++i) {
             auto key = my_keys[offsets[i]];
             auto n_vals = offsets[i+1] - offsets[i];
-            auto new_offset = old_n_vals + offsets[i];
-            shard.tuples[key] = ((new_offset << 32) | n_vals);
+            auto offset = old_n_vals + offsets[i];
+            shard.tuples[key] = ((offset << 32) | n_vals);
         }
     }
 
@@ -180,7 +180,7 @@ struct sindex_t {
 
         std::vector<size_t> partition_sizes;
         cq_get_partitions(q_keys, BLOCK_SZ, partition_sizes);
-        expect(parlay::reduce(partition_sizes) == q_keys.size());
+        verify(parlay::reduce(partition_sizes) == q_keys.size());
 
         parlay::sequence<u4> tmp_keys(BLOCK_SZ);
         parlay::sequence<u8> tmp_values(BLOCK_SZ);
@@ -244,7 +244,7 @@ struct sindex_t {
         if (shard.tuples.contains(SKEY(key))) {
             auto val = shard.tuples[SKEY(key)];
             auto offset = val >> 32, count = val & 0xffffffff;
-            if (count >= max_allowed_occ) return {nullptr, nullptr};
+//            if (count >= max_allowed_occ) return {nullptr, nullptr};
             return {shard.values.data() + offset, shard.values.data() + offset + count};
         } else return {nullptr, nullptr};
     }

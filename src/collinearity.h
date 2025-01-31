@@ -23,7 +23,7 @@
  * @param k k-mer size
  * @param sigma alphabet size
  */
-index_t process_fasta(const char* fasta_filename, int k, int sigma);
+sindex_t process_fasta(const char* fasta_filename, int k, int sigma);
 
 sindex_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::string poremodel);
 
@@ -36,7 +36,7 @@ sindex_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::st
  * @param index index
  * @param refnames reference headers
  */
-void query(const char *filename, int k, int sigma, size_t batch_sz, index_t &index);
+void query(const char *filename, int k, int sigma, size_t batch_sz, sindex_t &index);
 
 void query_raw(const char *filename, int k, int sigma, size_t batch_sz, sindex_t &index);
 
