@@ -15,7 +15,7 @@ static void align_raw(const std::vector<std::string> &qry_headers, const std::ve
                       const std::vector<double> &digitizations, const std::vector<double> &offsets,
                       const std::vector<double> &ranges,
                       parlay::sequence<int16_t > &raw_signals,
-                      index_t &index, int k, int sigma);
+                      sindex_t &index, int k, int sigma);
 static inline void print_alignments(const std::vector<std::string> &qry_headers, const std::vector<std::string> &trg_headers,
                                     const parlay::sequence<u4> &trg_ids, const parlay::sequence<u8> &trg_posns);
 
@@ -76,7 +76,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, index_
     info("Done.");
 }
 
-void query_raw(const char *filename, int k, int sigma, const size_t batch_sz, index_t &index) {
+void query_raw(const char *filename, int k, int sigma, const size_t batch_sz, sindex_t &index) {
     index.init_query_buffers();
     std::vector<std::string> headers;
     std::vector<u4> lengths;
@@ -96,6 +96,8 @@ void query_raw(const char *filename, int k, int sigma, const size_t batch_sz, in
     slow5_rec_t *rec = nullptr; //slow5 record to be read
     int ret=0; //for return value
 
+    info("Querying..");
+
     //iterate through the file until end
     while((ret = slow5_get_next(&rec,sp)) >= 0){
         headers.emplace_back(rec->read_id);
@@ -107,6 +109,7 @@ void query_raw(const char *filename, int k, int sigma, const size_t batch_sz, in
         //double pA = TO_PICOAMPS(rec->raw_signal[i],rec->digitisation,rec->offset,rec->range);
         nr++;
         if (nr == batch_sz) {
+            sitrep("----------");
             // query
             expect(headers.size() == nr);
             expect(lengths.size() == nr);
@@ -138,6 +141,7 @@ void query_raw(const char *filename, int k, int sigma, const size_t batch_sz, in
 
     //close the SLOW5 file
     slow5_close(sp);
+    info("Done.");
 }
 
 static void align(const std::vector<std::string> &qry_headers, const std::vector<u4> &lengths,
@@ -171,7 +175,7 @@ static void align_raw(const std::vector<std::string> &qry_headers, const std::ve
                       const std::vector<double> &digitizations, const std::vector<double> &offsets,
                       const std::vector<double> &ranges,
                       parlay::sequence<int16_t > &raw_signals,
-                      index_t &index, const int k, const int sigma) {
+                      sindex_t &index, const int k, const int sigma) {
     const auto B = qry_headers.size();
     expect(B == lengths.size());
     const auto [qry_offsets, total_qry_len] = parlay::scan(lengths);

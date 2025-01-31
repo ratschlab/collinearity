@@ -32,7 +32,6 @@ u1 dynamic_quantize(double signal, float fine_min, float fine_max, float fine_ra
 
     // Map the quantized value back to the range [0, 2^n_buckets - 1]
     u1 quantizedValue = (u1)(quantized * (n_buckets-1));
-    quantizedValue = quantizedValue < 8? quantizedValue : 7;
 
     return quantizedValue;
 }

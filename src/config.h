@@ -96,7 +96,16 @@ struct config_t {
                 if (qry.substr(0,2) == "--") print_usage_and_exit();
                 argc -= 3, argv += 3;
                 if (str_endswith(qry.c_str(), ".blow5")) raw = true;
-            } else print_usage_and_exit();
+            } else if (streq(argv[0], "both")) {
+                phase = 3;
+                if (argc < 3) print_usage_and_exit();
+                ref = argv[1];
+                if (ref.substr(0,2) == "--") print_usage_and_exit();
+                qry = argv[2];
+                if (qry.substr(0,2) == "--") print_usage_and_exit();
+                argc -= 3, argv += 3;
+            }
+            else print_usage_and_exit();
         } else print_usage_and_exit();
 
         while (argc) {
@@ -115,7 +124,7 @@ struct config_t {
 
         if (raw) {
             if (k < 1 || k > 10) k = 8;
-            sigma = 8;
+            sigma = 16;
         }
         else {
             if (k < 1 || k > 16) k = 15;

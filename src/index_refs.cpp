@@ -46,9 +46,9 @@ index_t process_fasta(const char* fasta_filename, int k, int sigma) {
     return index;
 }
 
-index_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::string poremodel) {
+sindex_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::string poremodel) {
     const auto [pore_k, pore_levels] = load_pore_model(poremodel);
-    index_t index(k, sigma);
+    sindex_t index;
     KSeq record;
     auto fd = open(fasta_filename, O_RDONLY);
     if (fd < 0) error("Could not open %s because %s.", fasta_filename, strerror(errno));

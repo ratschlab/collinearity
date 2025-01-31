@@ -25,7 +25,7 @@
  */
 index_t process_fasta(const char* fasta_filename, int k, int sigma);
 
-index_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::string poremodel);
+sindex_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::string poremodel);
 
 /**
  * query fasta input in index
@@ -38,7 +38,7 @@ index_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::str
  */
 void query(const char *filename, int k, int sigma, size_t batch_sz, index_t &index);
 
-void query_raw(const char *filename, int k, int sigma, size_t batch_sz, index_t &index);
+void query_raw(const char *filename, int k, int sigma, size_t batch_sz, sindex_t &index);
 
 static auto encode_dna = [](char x) { return (u4)(((x) >> 1) & 3); };
 static auto encode_qsig = [](u1 x) { return x; };
