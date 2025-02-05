@@ -20,6 +20,8 @@ parlay::sequence<double> sequence2squiggles(const T &sequence, int k, const std:
 parlay::sequence<u1> quantize_signal(parlay::sequence<double> &signal, float diff=.35f, u1 quant_bit=4,
                                 float fine_min=-2.0f, float fine_max=2.0f, float fine_range=.4f);
 
+parlay::sequence<u1> quantize_signal_simple(parlay::sequence<double> &signal);
+
 class signal_segmenter_i {
 public:
     virtual ~signal_segmenter_i() {}
@@ -55,6 +57,13 @@ public:
 };
 
 #define TO_PICOAMPS(RAW_VAL,DIGITISATION,OFFSET,RANGE) (((RAW_VAL)+(OFFSET))*((RANGE)/(DIGITISATION)))
+
+#define BIN_EDGES_16 {-1.605, -1.23, -0.995, -0.745, -0.576, -0.408, -0.188, \
+                        0.068, 0.277, 0.471, 0.637, 0.796, 0.946, 1.133, 1.4}
+
+#define BIN_EDGES_8 {-1.230, -0.745, -0.408, 0.068, 0.471, 0.796, 1.133}
+
+const static double bin_edges[] = BIN_EDGES_16;
 
 
 #endif //COLLINEARITY_RAWSIGNALS_H

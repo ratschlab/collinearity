@@ -138,12 +138,12 @@ public:
      */
     const T& operator[](const size_t i) const {
         if (i < _size) return blocks[i / BLOCK_SZ].data[i % BLOCK_SZ];
-        else error("Array index out of bounds.");
+        else log_error("Array index out of bounds.");
     }
 
     T operator[](const size_t i) {
         if (i < _size) return blocks[i / BLOCK_SZ].data[i % BLOCK_SZ];
-        else error("Array index out of bounds.");
+        else log_error("Array index out of bounds.");
     }
 };
 

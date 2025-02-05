@@ -68,6 +68,7 @@ static void prettyPrintVector(const Sequence<T>& vec, const char *fmt, size_t th
         printf(fmt, vec[n-1]);
     }
     printf("]\n");
+    fflush(stdout);
 }
 
 // Pretty-print a vector, showing head and tail for long vectors

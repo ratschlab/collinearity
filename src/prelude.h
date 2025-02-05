@@ -41,17 +41,17 @@ static char *time_str(){
     return buf;
 }
 
-#define error(fmt, ...) do { \
+#define log_error(fmt, ...) do { \
     fprintf(stderr, "[%s]" RED "ERROR: " fmt RESET " at %s:%i\n",       \
             time_str(), ##__VA_ARGS__, __FILE__, __LINE__);     \
     assert(false);                                                                      \
 } while(0)
 
-#define info(fmt, ...) do { \
+#define log_info(fmt, ...) do { \
     fprintf(stderr, "[%s]" GRN "INFO: " fmt RESET "\n", time_str(), ##__VA_ARGS__); \
 } while(0)
 
-#define debug(lvl, fmt, ...) do { if (lvl[3] <= LOGLVL[3]) { \
+#define log_debug(lvl, fmt, ...) do { if (lvl[3] <= LOGLVL[3]) { \
     fprintf(stderr, "[%s]" lvl "INFO: " fmt RESET "\n", time_str(), ##__VA_ARGS__); \
 }} while(0)
 
@@ -62,7 +62,7 @@ static char *time_str(){
 
 #define stderrflush fprintf(stderr, "\n")
 
-#define warn(fmt, ...) do { \
+#define log_warn(fmt, ...) do { \
     fprintf(stderr, "[%s]" YEL "WARN: " fmt RESET " at %s:%i\n",       \
             time_str(), ##__VA_ARGS__, __FILE__, __LINE__);     \
 } while(0)
@@ -72,10 +72,10 @@ static char *time_str(){
 #ifdef NDEBUG
 #define verify(expression)
 #else
-#define verify(expression) if (SANITY_CHECKS && !(expression)) error("Expected " #expression "")
+#define verify(expression) if (SANITY_CHECKS && !(expression)) log_error("Expected " #expression "")
 #endif
 
-#define expect(expression) if (!(expression)) error("Expected " #expression "")
+#define expect(expression) if (!(expression)) log_error("Expected " #expression "")
 
 /// aliases and typedefs
 typedef uint8_t u1;

@@ -10,12 +10,12 @@
 int main(int argc, char *argv[]) {
 //    test_cqueue();
 //    test_cqutils();
-    info("Number of thread ids assigned - %d", parlay::num_thread_ids());
-    info("Number of workers - %zd", parlay::num_workers());
+    log_info("Number of thread ids assigned - %d", parlay::num_thread_ids());
+    log_info("Number of workers - %zd", parlay::num_workers());
     parlay::for_each(parlay::iota(32), [](size_t i){
         printf("%zd - %zd\n", i, parlay::worker_id());
     });
-    info("Number of thread ids assigned - %d", parlay::num_thread_ids());
+    log_info("Number of thread ids assigned - %d", parlay::num_thread_ids());
 //    test_compressed_array();
 //    test_cqueue();
 //    test_cqutils();

@@ -9,6 +9,7 @@ include_directories(external/hopscotch-map/include)
 include_directories(external/kseqpp/include)
 include_directories(external/parlayhash/include)
 include_directories(external/emhash)
+include_directories(external/argparse/include)
 
 add_subdirectory(external/streamvbyte)
 add_subdirectory(external/kseqpp)

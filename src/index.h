@@ -66,7 +66,7 @@ static u8 ipow(u8 base, u8 exp) {
 }
 
 template <typename K, typename V>
-void simple_sort_by_key(parlay::sequence<K> &keys, parlay::sequence<V> &values) {
+static void simple_sort_by_key(parlay::sequence<K> &keys, parlay::sequence<V> &values) {
     // Step 1: Create a vector of indices
     parlay::sequence<u4> indices(keys.size());
     for (int i = 0; i < keys.size(); ++i) {
@@ -91,7 +91,7 @@ void simple_sort_by_key(parlay::sequence<K> &keys, parlay::sequence<V> &values) 
 }
 
 template <typename T>
-parlay::sequence<u4> find_run_offsets(parlay::sequence<T> &values) {
+static parlay::sequence<u4> find_run_offsets(parlay::sequence<T> &values) {
     if (values.empty()) return {};
     parlay::sequence<u4> offsets(values.size()+1);
     offsets[0] = 0;
@@ -106,6 +106,19 @@ parlay::sequence<u4> find_run_offsets(parlay::sequence<T> &values) {
     return offsets;
 }
 
+static parlay::sequence<u4> get_minimizer_indices(parlay::sequence<u4> &keys, int w) {
+    size_t n = keys.size();
+    if (w > n) return {};
+    auto midx = parlay::tabulate(n - w + 1, [&](size_t i){
+        u4 min_key = -1, min_idx = -1;
+        for (u4 j = i; j < i+w; ++j) {
+            if (keys[j] < min_key) min_key = keys[j], min_idx = j;
+        }
+        return min_idx;
+    });
+    return parlay::unique(midx);
+}
+
 struct sindex_t {
     struct shard_t {
         emhash8::HashMap<u4,u8> tuples;
@@ -117,6 +130,7 @@ struct sindex_t {
     std::vector<std::string> headers;
     u4 max_allowed_occ;
     heavyhitter_ht_t *hhs = nullptr;
+    const bool minimize = true;
 
     static void put_in_shard(shard_t &shard, parlay::sequence<u4> &all_keys, parlay::sequence<u8> &all_values, parlay::sequence<u8> &my_indices) {
         u4 p = my_indices.size();
@@ -152,29 +166,31 @@ struct sindex_t {
             n_unique_keys_per_shard[i] = shards[i].tuples.size();
         });
         u4 total_uniq_keys = parlay::reduce(n_unique_keys_per_shard);
-        info("# unique kmers = %zd", total_uniq_keys);
-        parlay::sequence<u4> occ(total_uniq_keys);
-        auto [offset, total] = parlay::scan(n_unique_keys_per_shard);
-        expect(total == total_uniq_keys);
+        log_info("# unique kmers = %zd", total_uniq_keys);
+        if (total_uniq_keys) {
+            parlay::sequence<u4> occ(total_uniq_keys);
+            auto [offset, total] = parlay::scan(n_unique_keys_per_shard);
+            expect(total == total_uniq_keys);
 
-        parlay::for_each(parlay::iota(N_SHARDS), [&](size_t i){
-            auto my_off = offset[i];
-            int j = 0;
-            for (auto &[key, value]: shards[i].tuples) {
-                occ[my_off + j] = value & 0xffffffff;
-                j++;
-            }
-        });
-        parlay::sort_inplace(occ);
-        info("Min occ. = %u", occ[0]);
-        info("Median occ. = %u", occ[total_uniq_keys/2]);
-        info("Max occ. = %u", occ[total_uniq_keys-1]);
-        max_allowed_occ = occ[total_uniq_keys * .99];
-        info("99%% = %u", max_allowed_occ);
+            parlay::for_each(parlay::iota(N_SHARDS), [&](size_t i) {
+                auto my_off = offset[i];
+                int j = 0;
+                for (auto &[key, value]: shards[i].tuples) {
+                    occ[my_off + j] = value & 0xffffffff;
+                    j++;
+                }
+            });
+            parlay::sort_inplace(occ);
+            log_info("Min occ. = %u", occ[0]);
+            log_info("Median occ. = %u", occ[total_uniq_keys / 2]);
+            log_info("Max occ. = %u", occ[total_uniq_keys - 1]);
+            max_allowed_occ = occ[total_uniq_keys * .99];
+            log_info("99%% = %u", max_allowed_occ);
+        } else max_allowed_occ = 1<<31;
     }
 
     void build() {
-        info("Sorting..");
+        log_info("Sorting..");
         auto buf = malloc(12ULL * BLOCK_SZ);
         cq_sort_by_key(q_keys, q_values, BLOCK_SZ, buf);
 
@@ -250,13 +266,13 @@ struct sindex_t {
     }
 
     void dump(const std::string& basename) {
-        info("Dumping index.");
+        log_info("Dumping index.");
         std::string filename = basename + ".cidx";
         FILE *fp = fopen(filename.c_str(), "wb");
-        if (!fp) error("Could not open %s because %s", filename.c_str(), strerror(errno));
+        if (!fp) log_error("Could not open %s because %s", filename.c_str(), strerror(errno));
 
         size_t n = headers.size();
-        info("Dumping %zd refnames..", n);
+        log_info("Dumping %zd refnames..", n);
         fwrite(&n, sizeof(n), 1, fp);
         std::vector<u2> refnamelens(n);
         for (int i = 0; i < n; ++i) refnamelens[i] = headers[i].size();
@@ -266,7 +282,7 @@ struct sindex_t {
             fwrite(refname.c_str(), n, 1, fp);
         }
 
-        info("Collecting key-value pairs from shards..");
+        log_info("Collecting key-value pairs from shards..");
         parlay::sequence<u4> n_unique_keys_per_shard(N_SHARDS);
         parlay::for_each(parlay::iota(N_SHARDS), [&](size_t i){
             n_unique_keys_per_shard[i] = shards[i].tuples.size();
@@ -289,14 +305,14 @@ struct sindex_t {
             expect(j == offset[i+1] - offset[i]);
         });
 
-        info("Dumping keys..");
+        log_info("Dumping keys..");
         expect(offset.size() == N_SHARDS + 1);
         fwrite(&total_uniq_keys, sizeof(total_uniq_keys), 1, fp);
         fwrite(offset.data(), sizeof(offset[0]), offset.size(), fp);
         fwrite(keys.data(), sizeof(keys[0]), keys.size(), fp);
         fwrite(values.data(), sizeof(values[0]), values.size(), fp);
 
-        info("Dumping values..");
+        log_info("Dumping values..");
         for (auto & shard : shards) {
             u4 n_values = shard.values.size();
             fwrite(&n_values, sizeof(n_values), 1, fp);
@@ -306,18 +322,18 @@ struct sindex_t {
         fwrite(&max_allowed_occ, sizeof(max_allowed_occ), 1, fp);
 
         fclose(fp);
-        info("Done.");
+        log_info("Done.");
     }
 
     void load(const std::string& basename) {
-        info("Loading index.");
+        log_info("Loading index.");
         std::string filename = basename + ".cidx";
         FILE *fp = fopen(filename.c_str(), "rb");
-        if (!fp) error("Could not open %s because %s", filename.c_str(), strerror(errno));
+        if (!fp) log_error("Could not open %s because %s", filename.c_str(), strerror(errno));
 
         size_t n;
         expect(fread(&n, sizeof(n), 1, fp) == 1);
-        info("Loading %zd refnames..", n);
+        log_info("Loading %zd refnames..", n);
         std::vector<u2> refnamelens(n);
         expect(fread(refnamelens.data(), sizeof(u2), n, fp) == n);
 
@@ -328,7 +344,7 @@ struct sindex_t {
             headers.emplace_back(buffer, l);
         }
 
-        info("loading keys..");
+        log_info("loading keys..");
         u4 total_uniq_keys;
         parlay::sequence<u4> offset(N_SHARDS+1);
         expect(fread(&total_uniq_keys, sizeof(total_uniq_keys), 1, fp) == 1);
@@ -339,14 +355,14 @@ struct sindex_t {
         expect(fread(keys.data(), sizeof(keys[0]), keys.size(), fp) == keys.size());
         expect(fread(values.data(), sizeof(values[0]), values.size(), fp) == values.size());
 
-        info("adding keys into hash table");
+        log_info("adding keys into hash table");
         parlay::for_each(parlay::iota(N_SHARDS), [&](size_t i){
             auto my_off = offset[i], count = offset[i+1] - offset[i];
             for (int j = 0; j < count; ++j)
                 shards[i].tuples[keys[my_off + j]] = values[my_off + j];
         });
 
-        info("loading values..");
+        log_info("loading values..");
         for (auto & shard : shards) {
             u4 n_values = shard.values.size();
             expect(fread(&n_values, sizeof(n_values), 1, fp) == 1);
@@ -357,178 +373,7 @@ struct sindex_t {
         expect(fread(&max_allowed_occ, sizeof(max_allowed_occ), 1, fp) == 1);
 
         fclose(fp);
-        info("Done.");
-    }
-};
-
-struct index_t {
-    const u4 k, nkeys;
-    std::vector<u4> counts;
-    std::vector<u8> offsets, values;
-    cqueue_t<u4> q_keys, q_counts;
-    cqueue_t<u8> q_values;
-    std::vector<std::string> headers;
-    heavyhitter_ht_t *hhs = nullptr;
-
-    explicit index_t(int k, int sigma): k(k), nkeys(ipow(sigma, k)) {}
-
-    void add(std::string &name, parlay::sequence<u4> &keys, parlay::sequence<u8> &addresses) {
-        headers.push_back(name);
-        q_keys.push_back(keys.data(), keys.size());
-        q_values.push_back(addresses.data(), addresses.size());
-    }
-
-    void build() {
-        info("Sorting..");
-        auto buf = malloc(12ULL * BLOCK_SZ);
-        cq_sort_by_key(q_keys, q_values, BLOCK_SZ, buf);
-
-        // compress by q_keys
-        info("Counting unique keys..");
-        cqueue_t<u4> q_unique_keys;
-        cq_count_unique(q_keys, BLOCK_SZ, buf, q_unique_keys, q_counts);
-        free(buf);
-
-        values.resize(nkeys);
-        size_t nk = q_unique_keys.size();
-        size_t nv = q_values.size();
-        expect(nk == q_counts.size());
-        std::vector<u4> keys(nk), n_values(nk);
-        q_unique_keys.pop_front(keys.data(), nk);
-        q_counts.pop_front(n_values.data(), nk);
-        if (SANITY_CHECKS) {
-            size_t total = 0;
-            for (auto c: n_values) total += c;
-            expect(total == nv);
-        }
-
-        info("Allocating memory for coordinates..");
-        values.resize(nv);
-
-        info("Consolidating coordinates..");
-        q_values.pop_front(values.data(), values.size());
-        counts.resize(nkeys);
-        offsets.resize(nkeys);
-        std::fill(counts.begin(), counts.end(), 0);
-        std::fill(offsets.begin(), offsets.end(), 0);
-        parlay::for_each(parlay::iota(nk), [&](size_t i){
-            auto key = keys[i];
-            counts[key] = n_values[i];
-            offsets[key] = n_values[i];
-        });
-        size_t c = parlay::scan_inplace(offsets);
-        verify(c == values.size());
-        info("Done");
-    }
-
-    void print_info() {
-        auto counts_copy = parlay::integer_sort(counts);
-        auto start = lower_bound<u4>(counts_copy.data(), 0, counts_copy.size(), 1);
-        size_t nk = counts_copy.size() - start;
-        info("# kmers = %zd", nk);
-        info("Min occ. = %u", counts_copy[start]? counts_copy[start] : counts_copy[start+1]);
-        info("Median occ. = %u", counts_copy[start + nk / 2]);
-        info("Max occ. = %u", counts_copy.back());
-    }
-
-    void init_query_buffers() {hhs = new heavyhitter_ht_t[parlay::num_workers()];}
-
-    std::tuple<u4, u4, float> search(const u4 *keys, const size_t n_keys) {
-        const auto i = parlay::worker_id();
-        auto &hh = hhs[i];
-        hh.reset();
-
-        for (u4 j = 0; j < n_keys; ++j) {
-            const auto &[vbegin, vend] = get(keys[j]);
-            for (auto v = vbegin; v != vend; ++v) {
-                u8 ref_id = get_id_from(*v);
-                u8 ref_pos = get_pos_from(*v);
-                u8 intercept = (ref_pos > j) ? (ref_pos - j) : 0;
-                intercept /= bandwidth;
-                u8 key = make_key_from(ref_id, intercept);
-                hh.insert(key);
-                if (intercept >= bandwidth) {
-                    intercept -= bandwidth;
-                    key = make_key_from(ref_id, intercept);
-                    hh.insert(key);
-                }
-            }
-        }
-
-        // in this case, presence_fraction is the frac. of kmers that support an intercept
-        float presence = (hh.top_count * 1.0) / n_keys;
-        if (presence >= presence_fraction)
-            return std::make_tuple(get_id_from(hh.top_key), get_pos_from(hh.top_key) * bandwidth, presence);
-        else return std::make_tuple(-1, -1, 0.0f);
-    }
-
-    std::pair<u8*, u8*> get(u4 key) {
-        return std::make_pair(values.data()+offsets[key], values.data()+offsets[key]+counts[key]);
-    }
-
-    void dump(const std::string& basename) {
-        info("Dumping index.");
-        std::string filename = basename + ".cidx";
-        FILE *fp = fopen(filename.c_str(), "wb");
-        if (!fp) error("Could not open %s because %s", filename.c_str(), strerror(errno));
-
-        size_t n = headers.size();
-        info("Dumping %zd refnames..", n);
-        fwrite(&n, sizeof(n), 1, fp);
-        std::vector<u2> refnamelens(n);
-        for (int i = 0; i < n; ++i) refnamelens[i] = headers[i].size();
-        fwrite(refnamelens.data(), sizeof(u2), n, fp);
-        for (const auto& refname : headers) {
-            n = refname.size();
-            fwrite(refname.c_str(), n, 1, fp);
-        }
-
-        n = counts.size();
-        info("Dumping %zd counts and offsets..", n);
-        fwrite(&n, sizeof(n), 1, fp);
-        fwrite(counts.data(), sizeof(u4), n, fp);
-        fwrite(offsets.data(), sizeof(u8), n, fp);
-
-        n = values.size();
-        info("Dumping %zd values..", n);
-        fwrite(&n, sizeof(n), 1, fp);
-        fwrite(values.data(), sizeof(u8), n, fp);
-        fclose(fp);
-        info("Done.");
-    }
-
-    void load(const std::string& basename) {
-        info("Loading index.");
-        std::string filename = basename + ".cidx";
-        FILE *fp = fopen(filename.c_str(), "rb");
-        if (!fp) error("Could not open %s because %s", filename.c_str(), strerror(errno));
-
-        size_t n;
-        fread(&n, sizeof(n), 1, fp);
-        info("Loading %zd refnames..", n);
-        std::vector<u2> refnamelens(n);
-        fread(refnamelens.data(), sizeof(u2), n, fp);
-
-        char buffer[4096];
-        for (int i = 0; i < n; ++i) {
-            size_t l = refnamelens[i];
-            fread(buffer, l, 1, fp);
-            headers.emplace_back(buffer, l);
-        }
-
-        fread(&n, sizeof(n), 1, fp);
-        info("Loading %zd counts and offsets..", n);
-        counts.resize(n);
-        offsets.resize(n);
-        fread(counts.data(), sizeof(u4), n, fp);
-        fread(offsets.data(), sizeof(u8), n, fp);
-
-        fread(&n, sizeof(n), 1, fp);
-        info("Loading %zd values..", n);
-        values.resize(n);
-        fread(values.data(), sizeof(u8), n, fp);
-
-        fclose(fp);
+        log_info("Done.");
     }
 };
 

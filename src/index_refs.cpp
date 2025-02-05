@@ -12,7 +12,7 @@ sindex_t process_fasta(const char* fasta_filename, int k, int sigma) {
     sindex_t index;
     KSeq record;
     auto fd = open(fasta_filename, O_RDONLY);
-    if (fd < 0) error("Could not open %s because %s.", fasta_filename, strerror(errno));
+    if (fd < 0) log_error("Could not open %s because %s.", fasta_filename, strerror(errno));
     auto ks = make_kstream(fd, read, mode::in);
 
     size_t total_nk = 0, total_nbytes = 0;
@@ -40,7 +40,7 @@ sindex_t process_fasta(const char* fasta_filename, int k, int sigma) {
     }
     stderrflush;
     close(fd);
-    info("Generated %zd tuples from %zd sequences", total_nk, ref_id);
+    log_info("Generated %zd tuples from %zd sequences", total_nk, ref_id);
 
     index.build();
     return index;
@@ -51,7 +51,7 @@ sindex_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::st
     sindex_t index;
     KSeq record;
     auto fd = open(fasta_filename, O_RDONLY);
-    if (fd < 0) error("Could not open %s because %s.", fasta_filename, strerror(errno));
+    if (fd < 0) log_error("Could not open %s because %s.", fasta_filename, strerror(errno));
     auto ks = make_kstream(fd, read, mode::in);
 
     size_t total_nk = 0, total_nbytes = 0;
@@ -59,7 +59,7 @@ sindex_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::st
     while (ks >> record) {
         if (record.seq.size() > k + pore_k) {
             auto squiggles = sequence2squiggles(record.seq, pore_k, pore_levels);
-            auto quant = quantize_signal(squiggles);
+            auto quant = quantize_signal_simple(squiggles);
             auto kmers = create_kmers(quant, k, sigma, encode_qsig);
             auto nk = kmers.size();
             auto addresses = create_addresses(ref_id, nk);
@@ -69,7 +69,7 @@ sindex_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::st
             ref_id++;
 
             squiggles = sequence2squiggles(revcmp_par(record.seq), pore_k, pore_levels);
-            quant = quantize_signal(squiggles);
+            quant = quantize_signal_simple(squiggles);
             kmers = create_kmers(quant, k, sigma, encode_qsig);
             nk = kmers.size();
             addresses = create_addresses(ref_id, nk);
@@ -83,7 +83,7 @@ sindex_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::st
     }
     stderrflush;
     close(fd);
-    info("Generated %zd tuples from %zd sequences", total_nk, ref_id);
+    log_info("Generated %zd tuples from %zd sequences", total_nk, ref_id);
 
     index.build();
     return index;

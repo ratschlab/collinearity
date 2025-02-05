@@ -6,10 +6,11 @@
 #define COLLINEARITY_CONFIG_H
 
 #include "prelude.h"
+#include "argparse/argparse.hpp"
 
 using namespace std;
 
-static inline size_t hmsize2bytes(std::string& hsize) {
+[[maybe_unused]] static inline size_t hmsize2bytes(std::string& hsize) {
     char unit = hsize.back();
     if (unit >= 48 && unit <= 57)
         return std::stoul(hsize);
@@ -30,98 +31,59 @@ static inline size_t hmsize2bytes(std::string& hsize) {
                 size = size GiB;
                 break;
             default:
-                error("Unknown unit %c.", unit);
+                log_error("Unknown unit %c.", unit);
         }
         return size;
     }
 }
 
-struct config_t {
-    int phase = 0;
-    string ref, qry, poremodel;
+struct config_t : public argparse::Args {
+    enum phase_t {index, query, both};
+    struct idx_args_t : public argparse::Args {
+        std::string &ref = kwarg("ref", "reference file path");
+        std::string &poremodel = kwarg("poremodel", "pore-model file path").set_default("");
+        int &k = kwarg("k", "k-mer length").set_default(15);
+    };
+
+    struct qry_args_t : public argparse::Args {
+        std::string &ref = kwarg("ref", "reference file path");
+        std::string &qry = kwarg("qry", "query file path");
+    };
+
+    struct idx_qry_args_t : public argparse::Args {
+        std::string &ref = kwarg("ref", "reference file path");
+        std::string &poremodel = kwarg("poremodel", "pore-model file path").set_default("");
+        int &k = kwarg("k", "k-mer length").set_default(15);
+        std::string &qry = kwarg("qry", "query file path");
+    };
+
+    idx_args_t &idx_args = subcommand("index");
+    qry_args_t &qry_args = subcommand("query");
+    idx_qry_args_t &both_args = subcommand("both");
+
+    std::string ref, qry, poremodel;
     bool raw = false;
-    int k=0, sigma;
+    int k = 0, sigma = 0;
+    phase_t phase = both;
 
-    void print() const {
-        info("Config:");
-        info("Phase: %d", phase);
-        info("Ref: %s", ref.c_str());
-        info("Query: %s", qry.c_str());
-        info("Poremodel: %s, Raw = %d", poremodel.c_str(), raw);
-        info("k = %d, sigma = %d", k, sigma);
-    }
-
-    const char *usage = R""""(
-    collinearity {index/query} [options]
-
-    collinearity index  [fasta]              # path input fasta file \
-                        --poremodel []       # if specified, the fasta will be indexed raw using the poremodel file
-                        -k                   # kmer length
-
-    collinearity query  [fasta]     # path to fasta file \
-                        [query]     # input fasta/fastq/blow5 file. For blow5 file, the ref must be indexed in raw formal
-                        -k                   # kmer length (must be the same one used in indexing)
-
-    **Exmaples:**
-
-    collinearity index references.fa -k 15    # creates a `references.fa.cidx` file \
-    && collinearity query references.fa reads.fastq -k 15 > report.tsv
-
-    collinearity index references.fa --poremodel models.csv -k 8    # creates a `references.fa.cidx` file \
-    && collinearity query references.fa signals.blow5 -k 8 > report.tsv
-    )"""";
-
-    void print_usage_and_exit() const {
-        printf("%s\n", usage);
-        exit(1);
-    }
-
-    config_t(const config_t&) = delete;
-    config_t& operator = (const config_t&) = delete;
-
-    config_t(int argc, char *argv[]) {
-        if (argc >= 3) {
-            --argc, ++argv;
-            if (streq(argv[0], "index")) {
-                phase = 1;
-                ref = argv[1];
-                if (ref.substr(0,2) == "--") print_usage_and_exit();
-                argc -= 2, argv += 2;
-            } else if (streq(argv[0], "query")) {
-                phase = 2;
-                if (argc < 3) print_usage_and_exit();
-                ref = argv[1];
-                if (ref.substr(0,2) == "--") print_usage_and_exit();
-                qry = argv[2];
-                if (qry.substr(0,2) == "--") print_usage_and_exit();
-                argc -= 3, argv += 3;
-                if (str_endswith(qry.c_str(), ".blow5")) raw = true;
-            } else if (streq(argv[0], "both")) {
-                phase = 3;
-                if (argc < 3) print_usage_and_exit();
-                ref = argv[1];
-                if (ref.substr(0,2) == "--") print_usage_and_exit();
-                qry = argv[2];
-                if (qry.substr(0,2) == "--") print_usage_and_exit();
-                argc -= 3, argv += 3;
-            }
-            else print_usage_and_exit();
-        } else print_usage_and_exit();
-
-        while (argc) {
-            if (streq(*argv, "--poremodel")) {
-                raw = true;
-                poremodel = argv[1];
-                if (poremodel.substr(0,2) == "--") print_usage_and_exit();
-                argc -= 2, argv += 2;
-            } else if (streq(argv[0], "-k")) {
-                k = atoi(reinterpret_cast<const char *>(argv[1]));
-                argc -= 2, argv += 2;
-            } else print_usage_and_exit();
+    config_t init(int argc, char *argv[]) {
+        auto config = argparse::parse<config_t>(argc, argv);
+        if (config.idx_args.is_valid) {
+            ref = config.idx_args.ref;
+            poremodel = config.idx_args.poremodel;
+            k = config.idx_args.k;
+            raw = !poremodel.empty();
+        } else if (config.qry_args.is_valid) {
+            ref = config.qry_args.ref;
+            qry = config.qry_args.qry;
+            raw = str_endswith(qry.c_str(), ".blow5");
+        } else {
+            ref = config.both_args.ref;
+            poremodel = config.both_args.poremodel;
+            k = config.both_args.k;
+            qry = config.both_args.qry;
+            raw = !poremodel.empty();
         }
-
-        if (str_endswith(qry.c_str(), ".blow5")) raw = true;
-
         if (raw) {
             if (k < 1 || k > 10) k = 8;
             sigma = 16;
@@ -130,8 +92,8 @@ struct config_t {
             if (k < 1 || k > 16) k = 15;
             sigma = 4;
         }
+        return config;
     }
-
 };
 
 #endif //COLLINEARITY_CONFIG_H

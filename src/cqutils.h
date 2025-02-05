@@ -217,7 +217,7 @@ static void cq_sort_by_key(cqueue_t<K> &keys, cqueue_t<V> &values, const size_t 
     }
 
     else {
-        debug(LOW, "Sorting blocks..");
+        log_debug(LOW, "Sorting blocks..");
         /// sort key-value pairs in chunks of M
         std::queue<std::pair<cqueue_t<K>, cqueue_t<V>>> sorted;
         expect(sorted.size() == 0);
@@ -233,7 +233,7 @@ static void cq_sort_by_key(cqueue_t<K> &keys, cqueue_t<V> &values, const size_t 
             sorted_values.push_back(d_values, nr);
             sorted.emplace(std::move(sorted_keys), std::move(sorted_values));
         }
-        debug(LOW, "Created %zd sorted lists", sorted.size());
+        log_debug(LOW, "Created %zd sorted lists", sorted.size());
         expect(keys.size() == 0);
         expect(values.size() == 0);
 
@@ -245,11 +245,11 @@ static void cq_sort_by_key(cqueue_t<K> &keys, cqueue_t<V> &values, const size_t 
             sorted.pop();
             cqueue_t<K> out_keys;
             cqueue_t<V> out_values;
-            debug(LOW, "Merge round %d: %zd + %zd", merge_round++, kv_pair_left.first.size(), kv_pair_right.first.size());
+            log_debug(LOW, "Merge round %d: %zd + %zd", merge_round++, kv_pair_left.first.size(), kv_pair_right.first.size());
             cq_merge_by_key(kv_pair_left.first, kv_pair_left.second, kv_pair_right.first, kv_pair_right.second,
                             M, d_buf, out_keys, out_values);
             sorted.push(std::make_pair(std::move(out_keys), std::move(out_values)));
-            debug(LOW, "Left with %zd sorted lists", sorted.size());
+            log_debug(LOW, "Left with %zd sorted lists", sorted.size());
         }
 
         // last 2 blocks remaining. merge
@@ -257,7 +257,7 @@ static void cq_sort_by_key(cqueue_t<K> &keys, cqueue_t<V> &values, const size_t 
         sorted.pop();
         auto kv_pair_right = std::move(sorted.front());
         sorted.pop();
-        debug(LOW, "Final merge round %d: %zd + %zd", merge_round, kv_pair_left.first.size(), kv_pair_right.first.size());
+        log_debug(LOW, "Final merge round %d: %zd + %zd", merge_round, kv_pair_left.first.size(), kv_pair_right.first.size());
         cq_merge_by_key(kv_pair_left.first, kv_pair_left.second, kv_pair_right.first, kv_pair_right.second, M, d_buf, keys, values);
         expect(keys.size() == N);
         expect(values.size() == N);

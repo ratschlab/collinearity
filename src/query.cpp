@@ -33,9 +33,9 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, sindex
     // read sequences and convert to key-value pairs
     KSeq record;
     auto fd = open(filename, O_RDONLY);
-    if (fd < 0) error("Could not open %s because %s.", filename, strerror(errno));
+    if (fd < 0) log_error("Could not open %s because %s.", filename, strerror(errno));
     auto ks = make_kstream(fd, read, mode::in);
-    info("Begin query..");
+    log_info("Begin query..");
     int nr = 0;
     u8 total_nr = 0;
     while (ks >> record) {
@@ -73,7 +73,7 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, sindex
     }
     stderrflush;
     close(fd);
-    info("Done.");
+    log_info("Done.");
 }
 
 void query_raw(const char *filename, int k, int sigma, const size_t batch_sz, sindex_t &index) {
@@ -91,12 +91,12 @@ void query_raw(const char *filename, int k, int sigma, const size_t batch_sz, si
     u8 total_nr = 0;
 
     auto sp = slow5_open(filename, "r");
-    if (!sp) error("Could not open file %s", filename);
+    if (!sp) log_error("Could not open file %s", filename);
 
     slow5_rec_t *rec = nullptr; //slow5 record to be read
     int ret=0; //for return value
 
-    info("Querying..");
+    log_info("Querying..");
 
     //iterate through the file until end
     while((ret = slow5_get_next(&rec,sp)) >= 0){
@@ -134,14 +134,14 @@ void query_raw(const char *filename, int k, int sigma, const size_t batch_sz, si
     stderrflush;
 
     if(ret != SLOW5_ERR_EOF)  //check if proper end of file has been reached
-        error("Error in slow5_get_next. Error code %d\n",ret);
+        log_error("Error in slow5_get_next. Error code %d\n",ret);
 
     //free the SLOW5 record
     slow5_rec_free(rec);
 
     //close the SLOW5 file
     slow5_close(sp);
-    info("Done.");
+    log_info("Done.");
 }
 
 static void align(const std::vector<std::string> &qry_headers, const std::vector<u4> &lengths,
@@ -196,7 +196,7 @@ static void align_raw(const std::vector<std::string> &qry_headers, const std::ve
         }
         tstat_segmenter_t segmenter;
         auto events = generate_events(calibrated_signal, segmenter);
-        auto quantized = quantize_signal(events);
+        auto quantized = quantize_signal_simple(events);
         parlay::sequence<u4> keys(quantized.size() - k + 1);
         for (int j = 0; j < quantized.size() - k + 1; ++j)
             keys[j] = encode_kmer(quantized.data() + j, k, sigma, encode_qsig);

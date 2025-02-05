@@ -11,11 +11,11 @@ pair<int, vector<double>> load_pore_model(string &poremodel_file) {
     vector<string> kmers;
     vector<double> levels;
     ifstream file(poremodel_file);
-    if (!file.is_open()) error("Could not open file %s because %s.", poremodel_file.c_str(), strerror(errno));
+    if (!file.is_open()) log_error("Could not open file %s because %s.", poremodel_file.c_str(), strerror(errno));
 
     string line;
     // Read the header line
-    if (!getline(file, line)) error("File is empty or missing header.");
+    if (!getline(file, line)) log_error("File is empty or missing header.");
 
     // Parse each row
     while (getline(file, line)) {
@@ -24,11 +24,11 @@ pair<int, vector<double>> load_pore_model(string &poremodel_file) {
         double level;
 
         // Parse kmer
-        if (!getline(iss, kmer, '\t')) error("Error parsing kmer.");
+        if (!getline(iss, kmer, '\t')) log_error("Error parsing kmer.");
 
         // Parse level_mean
         if (!getline(iss, token, '\t') || !(istringstream(token) >> level))
-            error("Error parsing level_mean.");
+            log_error("Error parsing level_mean.");
 
         // Add the row to the vector
         kmers.push_back(kmer);
@@ -36,7 +36,7 @@ pair<int, vector<double>> load_pore_model(string &poremodel_file) {
     }
 
     int k = kmers[0].length();
-    info("Poremodel K = %d.", k);
+    log_info("Poremodel K = %d.", k);
 
     // Encode kmers
     vector<u4> kmerints;
@@ -55,8 +55,8 @@ pair<int, vector<double>> load_pore_model(string &poremodel_file) {
     sort(kmerints.begin(), kmerints.end());
     vector<int> diffs(num_kmers - 1);
     adjacent_difference(kmerints.begin(), kmerints.end(), diffs.begin());
-    if (all_of(diffs.begin() + 1, diffs.end(), [](int diff) { return diff == 1; })) info("Done");
-    else error("kmers missing from pore model");
+    if (all_of(diffs.begin() + 1, diffs.end(), [](int diff) { return diff == 1; })) log_info("Done");
+    else log_error("kmers missing from pore model");
 
     // normalize levels
     double sum = accumulate(levels1.begin(), levels1.end(), 0.0);
@@ -65,7 +65,7 @@ pair<int, vector<double>> load_pore_model(string &poremodel_file) {
     transform(levels1.begin(), levels1.end(), diff.begin(), [mean](double x) { return x - mean; });
     double sq_sum = inner_product(diff.begin(), diff.end(), diff.begin(), 0.0);
     double stdev = sqrt(sq_sum / num_kmers);
-    info("Mean = %f, StdDev = %f.", mean, stdev);
+    log_info("Mean = %f, StdDev = %f.", mean, stdev);
 
     transform(levels1.begin(), levels1.end(), levels.begin(),
               [mean, stdev](double val) { return (val - mean) / stdev; });

@@ -36,6 +36,11 @@ u1 dynamic_quantize(double signal, float fine_min, float fine_max, float fine_ra
     return quantizedValue;
 }
 
+inline u1 static_quantize(double signal) {
+    const size_t n = sizeof(bin_edges)/ sizeof(double);
+    return lower_bound(bin_edges, 0, n, signal);
+}
+
 parlay::sequence<u1> quantize_signal(parlay::sequence<double> &signal, float diff, u1 quant_bit,
                                 float fine_min, float fine_max, float fine_range) {
     const auto slen = signal.size();
@@ -62,5 +67,35 @@ parlay::sequence<u1> quantize_signal(parlay::sequence<double> &signal, float dif
     }
 
     quantized.resize(nqval);
+    return quantized;
+}
+
+parlay::sequence<u1> quantize_signal_simple(parlay::sequence<double> &signal) {
+    const auto slen = signal.size();
+    parlay::sequence<u1> quantized(slen);
+    for (int i = 0; i < slen; ++i) {
+        quantized[i] = static_quantize(signal[i]);
+    }
+    return quantized;
+
+    int f_pos = 0;
+    int l_sigpos = 0;  // last signal position
+    int nqval = 0; // numbver of quantized values
+
+    // First quantization is done here
+    l_sigpos = f_pos;
+    quantized[nqval++] = static_quantize(signal[f_pos]);
+
+    for (f_pos = 1; f_pos < slen; f_pos++) {
+        if (std::abs(signal[f_pos] - signal[l_sigpos]) < .4) {
+            continue;
+        }
+
+        l_sigpos = f_pos;
+        quantized[nqval++] = static_quantize(signal[f_pos]);
+    }
+
+    quantized.resize(nqval);
+
     return quantized;
 }
