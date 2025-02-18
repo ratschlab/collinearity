@@ -79,9 +79,8 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, sindex
 void query_jaccard(const char *filename, int k, int sigma, size_t batch_sz, jindex_t &index) {
     index.init_query_buffers();
     std::vector<std::string> headers, sequences;
-    std::vector<u4> lengths;
     headers.reserve(batch_sz);
-    lengths.reserve(batch_sz);
+    sequences.reserve(batch_sz);
     // read sequences and convert to key-value pairs
     KSeq record;
     auto fd = open(filename, O_RDONLY);
@@ -94,7 +93,6 @@ void query_jaccard(const char *filename, int k, int sigma, size_t batch_sz, jind
         if (record.seq.size() > k) {
             headers.push_back(record.name);
             sequences.emplace_back(record.seq);
-            lengths.push_back(record.seq.size());
             nr++;
             if (nr == batch_sz) {
                 auto results = parlay::tabulate(nr, [&](size_t i) {
@@ -106,7 +104,6 @@ void query_jaccard(const char *filename, int k, int sigma, size_t batch_sz, jind
                 sitrep("%lu", total_nr);
                 nr = 0;
                 headers.clear();
-                lengths.clear();
                 sequences.clear();
             }
         }
@@ -121,7 +118,6 @@ void query_jaccard(const char *filename, int k, int sigma, size_t batch_sz, jind
         sitrep("%lu", total_nr);
         nr = 0;
         headers.clear();
-        lengths.clear();
         sequences.clear();
     }
 }

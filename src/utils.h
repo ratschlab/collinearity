@@ -69,7 +69,7 @@ static inline parlay::sequence<u4> create_kmers_1t(const T& sequence, int k, int
     parlay::sequence<u4> keys(n_keys);
     keys[0] = encode_kmer(sequence, k, sigma, encoder);
     for (u4 i = k, j = 1; i < n; ++i, ++j) {
-        keys[j] = (keys[j-1] - encoder(sequence[j-1]) * M) * sigma + sequence[i];
+        keys[j] = (keys[j-1] - encoder(sequence[j-1]) * M) * sigma + encoder(sequence[i]);
     }
     return keys;
 }

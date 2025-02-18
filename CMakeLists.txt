@@ -45,8 +45,6 @@ add_executable(Collinearity src/main.cpp
 )
 add_executable(tests
         tests/testmain.cpp
-        tests/test_cqueue.cpp
-        tests/test_cqutils.cpp
         tests/tests.h
 )
 
@@ -55,7 +53,7 @@ target_compile_options(Collinearity PRIVATE -fpermissive)
 target_link_libraries(Collinearity slow5 z)
 
 target_compile_options(tests PRIVATE -fpermissive)
-target_link_libraries(tests collinear z)
+target_link_libraries(tests z)
 
 target_link_libraries(_core PUBLIC slow5 z)
 install(TARGETS _core DESTINATION pycollinearity)
