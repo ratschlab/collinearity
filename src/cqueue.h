@@ -7,7 +7,6 @@
 
 #include <deque>
 #include "prelude.h"
-#include "compressed_array.h"
 
 #define BLOCK_SZ (256 MiB)
 

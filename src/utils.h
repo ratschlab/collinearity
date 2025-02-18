@@ -7,6 +7,44 @@
 
 #include "prelude.h"
 
+static auto encode_dna = [](char x) { return (u4)(((x) >> 1) & 3); };
+static auto encode_qsig = [](u1 x) { return x; };
+
+static u8 ipow(u8 base, u8 exp) {
+    u8 result = 1;
+    for (;;) {
+        if (exp & 1)
+            result *= base;
+        exp >>= 1;
+        if (!exp)
+            break;
+        base *= base;
+    }
+    return result;
+}
+
+template<typename T>
+static inline  size_t upper_bound(const T *arr, size_t start, size_t end, const T& key) {
+    size_t i;
+    while (start < end) {
+        i = (start + end) / 2;
+        if (key < arr[i]) end = i;
+        else start = i + 1;
+    }
+    return start;
+}
+
+template<typename T>
+static inline  size_t lower_bound(const T *arr, size_t start, size_t end, const T& key) {
+    size_t i;
+    while (start < end) {
+        i = (start + end) / 2;
+        if (key > arr[i]) start = i + 1;
+        else end = i;
+    }
+    return start;
+}
+
 template <typename T, typename Encoder>
 static inline u4 encode_kmer(const T& seq, int k, int sigma, Encoder encoder) {
     u8 v = 0;
@@ -23,10 +61,17 @@ static inline parlay::sequence<u4> create_kmers(const T& sequence, int k, int si
     });
 }
 
-static inline parlay::sequence<u8> create_addresses(u8 id, u8 num_kmers) {
-    return parlay::tabulate(num_kmers, [&](size_t i) {
-        return make_key_from(id, i);
-    });
+template <typename T, typename Encoder>
+static inline parlay::sequence<u4> create_kmers_1t(const T& sequence, int k, int sigma, Encoder encoder) {
+    const u8 M = ipow(sigma, k-1);
+    const u4 n = sequence.size(), n_keys = n - k + 1;
+    expect(n > k);
+    parlay::sequence<u4> keys(n_keys);
+    keys[0] = encode_kmer(sequence, k, sigma, encoder);
+    for (u4 i = k, j = 1; i < n; ++i, ++j) {
+        keys[j] = (keys[j-1] - encoder(sequence[j-1]) * M) * sigma + sequence[i];
+    }
+    return keys;
 }
 
 static inline parlay::sequence<char> revcmp(std::string &seq) {

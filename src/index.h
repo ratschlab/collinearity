@@ -6,12 +6,11 @@
 #define COLLINEARITY_INDEX_H
 
 #include "prelude.h"
-#include "compressed_array.h"
 #include "parlay_utils.h"
-//#include "parlay_hash/unordered_map.h"
 #include "cqueue.h"
-#include "tsl/hopscotch_map.h"
+#include "cqutils.h"
 #include "hash_table8.hpp"
+#include "utils.h"
 
 #ifdef NDEBUG
 #define SANITY_CHECKS 0
@@ -40,30 +39,18 @@ const float presence_fraction = .1f;
 // this is the bandwidth, I will later set this from the config
 const int bandwidth = 15;
 
+template <typename T>
 struct [[maybe_unused]] heavyhitter_ht_t {
-    emhash8::HashMap<u8,u4> counts;
-    u8 top_key = -1;
+    emhash8::HashMap<T,u4> counts;
+    T top_key = -1;
     u4 top_count = 0;
-    void insert(const u8 key) {
+    void insert(const T key) {
         u4 count = counts[key]++;
         if (count > top_count)
             top_count = count, top_key = key;
     }
     void reset() { counts.clear(), top_key=-1, top_count = 0; }
 };
-
-static u8 ipow(u8 base, u8 exp) {
-    u8 result = 1;
-    for (;;) {
-        if (exp & 1)
-            result *= base;
-        exp >>= 1;
-        if (!exp)
-            break;
-        base *= base;
-    }
-    return result;
-}
 
 template <typename K, typename V>
 static void simple_sort_by_key(parlay::sequence<K> &keys, parlay::sequence<V> &values) {
@@ -119,40 +106,149 @@ static parlay::sequence<u4> get_minimizer_indices(parlay::sequence<u4> &keys, in
     return parlay::unique(midx);
 }
 
+template <typename K, typename V>
+struct shard_t {
+    emhash8::HashMap<K,u8> tuples;
+    parlay::sequence<V> values;
+};
+
+template <typename K, typename V>
+static void put_in_shard(shard_t<K, V> &shard, parlay::sequence<K> &all_keys, parlay::sequence<V> &all_values, parlay::sequence<u8> &my_indices) {
+    u4 p = my_indices.size();
+    parlay::sequence<K> my_keys(p);
+    parlay::sequence<V> my_values(p);
+    for (u4 i = 0; i < p; ++i) {
+        my_keys[i] = SKEY(all_keys[my_indices[i]]);
+        my_values[i] = all_values[my_indices[i]];
+    }
+    simple_sort_by_key(my_keys, my_values);
+    auto offsets = find_run_offsets(my_keys);
+
+    size_t old_n_vals = shard.values.size();
+    shard.values.append(my_values);
+
+    for (int i = 0; i < offsets.size()-1; ++i) {
+        auto key = my_keys[offsets[i]];
+        auto n_vals = offsets[i+1] - offsets[i];
+        auto offset = old_n_vals + offsets[i];
+        shard.tuples[key] = ((offset << 32) | n_vals);
+    }
+}
+
+template <typename K, typename V>
+static u4 calc_max_occ(shard_t<K,V> *shards) {
+    u4 max_allowed_occ = -1;
+    parlay::sequence<u4> n_unique_keys_per_shard(N_SHARDS);
+    parlay::for_each(parlay::iota(N_SHARDS), [&](size_t i){
+        n_unique_keys_per_shard[i] = shards[i].tuples.size();
+    });
+    u4 total_uniq_keys = parlay::reduce(n_unique_keys_per_shard);
+    log_info("# unique kmers = %u", total_uniq_keys);
+    if (total_uniq_keys) {
+        parlay::sequence<u4> occ(total_uniq_keys);
+        auto [offset, total] = parlay::scan(n_unique_keys_per_shard);
+        expect(total == total_uniq_keys);
+
+        parlay::for_each(parlay::iota(N_SHARDS), [&](size_t i) {
+            auto my_off = offset[i];
+            int j = 0;
+            for (auto &[key, value]: shards[i].tuples) {
+                occ[my_off + j] = value & 0xffffffff;
+                j++;
+            }
+        });
+        parlay::sort_inplace(occ);
+        log_info("Min occ. = %u", occ[0]);
+        log_info("Median occ. = %u", occ[total_uniq_keys / 2]);
+        log_info("Max occ. = %u", occ[total_uniq_keys - 1]);
+        max_allowed_occ = occ[total_uniq_keys * .99];
+        log_info("99%% = %u", max_allowed_occ);
+    } else max_allowed_occ = 1<<31;
+    return max_allowed_occ;
+}
+
+template <typename K, typename V>
+static u4 consolidate(cqueue_t<K> &q_keys, cqueue_t<V> &q_values, shard_t<K, V> *shards) {
+    log_info("Sorting..");
+    size_t bufsz = (sizeof(K) + sizeof(V)) * BLOCK_SZ;
+    auto buf = malloc(bufsz);
+    cq_sort_by_key(q_keys, q_values, BLOCK_SZ, buf);
+
+    std::vector<size_t> partition_sizes;
+    cq_get_partitions(q_keys, BLOCK_SZ, partition_sizes);
+    verify(parlay::reduce(partition_sizes) == q_keys.size());
+
+    parlay::sequence<K> tmp_keys(BLOCK_SZ);
+    parlay::sequence<V> tmp_values(BLOCK_SZ);
+
+    for (auto np : partition_sizes) {
+        expect(np);
+        tmp_keys.resize(np), tmp_values.resize(np);
+        q_keys.pop_front(tmp_keys.data(), np);
+        q_values.pop_front(tmp_values.data(), np);
+
+        auto tuples = parlay::delayed_tabulate(np, [&](size_t i){
+            return std::make_pair(tmp_keys[i], i);
+        });
+        auto hash = [](const u4 &x) { return SHARD(x); };
+        auto equal = [](const u4& a, const u4& b) { return SHARD(a) == SHARD(b); };
+        auto grouped = parlay::group_by_key(tuples, hash, equal);
+
+        parlay::for_each(parlay::iota(grouped.size()), [&](size_t i){
+            auto shard_id = (SHARD(grouped[i].first));
+            put_in_shard(shards[shard_id], tmp_keys, tmp_values, grouped[i].second);
+        });
+    }
+    return calc_max_occ(shards);
+}
+
+class jindex_t {
+    shard_t<u4,u4> shards[N_SHARDS];
+    cqueue_t<u4> q_keys;
+    cqueue_t<u4> q_values;
+    heavyhitter_ht_t<u4> *hhs = nullptr;
+    const u4 k, sigma;
+    const u4 frag_len = 180, frag_ovlp_len = 120;
+    std::vector<std::string> headers;
+    std::vector<u4> frag_offsets = {0};
+    u4 max_occ = -1;
+
+    std::pair<u4*, u4*> get(u4 key);
+
+public:
+    explicit jindex_t(int k, int sigma);
+    void init_query_buffers();
+    void build() { max_occ = consolidate(q_keys, q_values, shards); }
+    std::tuple<const char*, u4, float> get(std::string &seq);
+    void dump(const std::string& basename);
+    void load(const std::string& basename);
+
+    template <typename Sequence>
+    void put(std::string &name, Sequence &seq) {
+        headers.push_back(name);
+        auto frag_offset = frag_offsets.back();
+
+        auto kmers = create_kmers(seq, k, sigma, encode_dna);
+        const u4 stride = frag_len - frag_ovlp_len;
+        u4 j = 0;
+        for (u4 i = 0; i < kmers.size(); i += stride, j++) {
+            size_t count =  std::min(frag_len, (u4)kmers.size() - i);
+            q_keys.push_back(kmers.data() + i, count);
+            auto values = parlay::sequence<u4>(count, frag_offset + j);
+            q_values.push_back(values.data(), count);
+        }
+        frag_offsets.push_back(frag_offset + j);
+    }
+};
+
 struct sindex_t {
-    struct shard_t {
-        emhash8::HashMap<u4,u8> tuples;
-        parlay::sequence<u8> values;
-    };
-    shard_t shards[N_SHARDS];
+    shard_t<u4,u8> shards[N_SHARDS];
     cqueue_t<u4> q_keys;
     cqueue_t<u8> q_values;
     std::vector<std::string> headers;
     u4 max_allowed_occ;
-    heavyhitter_ht_t *hhs = nullptr;
+    heavyhitter_ht_t<u8> *hhs = nullptr;
     const bool minimize = true;
-
-    static void put_in_shard(shard_t &shard, parlay::sequence<u4> &all_keys, parlay::sequence<u8> &all_values, parlay::sequence<u8> &my_indices) {
-        u4 p = my_indices.size();
-        parlay::sequence<u4> my_keys(p);
-        parlay::sequence<u8> my_values(p);
-        for (u4 i = 0; i < p; ++i) {
-            my_keys[i] = SKEY(all_keys[my_indices[i]]);
-            my_values[i] = all_values[my_indices[i]];
-        }
-        simple_sort_by_key(my_keys, my_values);
-        auto offsets = find_run_offsets(my_keys);
-
-        size_t old_n_vals = shard.values.size();
-        shard.values.append(my_values);
-
-        for (int i = 0; i < offsets.size()-1; ++i) {
-            auto key = my_keys[offsets[i]];
-            auto n_vals = offsets[i+1] - offsets[i];
-            auto offset = old_n_vals + offsets[i];
-            shard.tuples[key] = ((offset << 32) | n_vals);
-        }
-    }
 
     void add(std::string &name, parlay::sequence<u4> &keys, parlay::sequence<u8> &addresses) {
         headers.push_back(name);
@@ -160,70 +256,11 @@ struct sindex_t {
         q_values.push_back(addresses.data(), addresses.size());
     }
 
-    void calc_max_occ() {
-        parlay::sequence<u4> n_unique_keys_per_shard(N_SHARDS);
-        parlay::for_each(parlay::iota(N_SHARDS), [&](size_t i){
-            n_unique_keys_per_shard[i] = shards[i].tuples.size();
-        });
-        u4 total_uniq_keys = parlay::reduce(n_unique_keys_per_shard);
-        log_info("# unique kmers = %zd", total_uniq_keys);
-        if (total_uniq_keys) {
-            parlay::sequence<u4> occ(total_uniq_keys);
-            auto [offset, total] = parlay::scan(n_unique_keys_per_shard);
-            expect(total == total_uniq_keys);
-
-            parlay::for_each(parlay::iota(N_SHARDS), [&](size_t i) {
-                auto my_off = offset[i];
-                int j = 0;
-                for (auto &[key, value]: shards[i].tuples) {
-                    occ[my_off + j] = value & 0xffffffff;
-                    j++;
-                }
-            });
-            parlay::sort_inplace(occ);
-            log_info("Min occ. = %u", occ[0]);
-            log_info("Median occ. = %u", occ[total_uniq_keys / 2]);
-            log_info("Max occ. = %u", occ[total_uniq_keys - 1]);
-            max_allowed_occ = occ[total_uniq_keys * .99];
-            log_info("99%% = %u", max_allowed_occ);
-        } else max_allowed_occ = 1<<31;
-    }
-
     void build() {
-        log_info("Sorting..");
-        auto buf = malloc(12ULL * BLOCK_SZ);
-        cq_sort_by_key(q_keys, q_values, BLOCK_SZ, buf);
-
-        std::vector<size_t> partition_sizes;
-        cq_get_partitions(q_keys, BLOCK_SZ, partition_sizes);
-        verify(parlay::reduce(partition_sizes) == q_keys.size());
-
-        parlay::sequence<u4> tmp_keys(BLOCK_SZ);
-        parlay::sequence<u8> tmp_values(BLOCK_SZ);
-
-        for (auto np : partition_sizes) {
-            expect(np);
-            tmp_keys.resize(np), tmp_values.resize(np);
-            q_keys.pop_front(tmp_keys.data(), np);
-            q_values.pop_front(tmp_values.data(), np);
-
-            auto tuples = parlay::delayed_tabulate(np, [&](size_t i){
-                return std::make_pair(tmp_keys[i], i);
-            });
-            auto hash = [](const u4 &x) { return SHARD(x); };
-            auto equal = [](const u4& a, const u4& b) { return SHARD(a) == SHARD(b); };
-            auto grouped = parlay::group_by_key(tuples, hash, equal);
-
-            parlay::for_each(parlay::iota(grouped.size()), [&](size_t i){
-                auto shard_id = (SHARD(grouped[i].first));
-                put_in_shard(shards[shard_id], tmp_keys, tmp_values, grouped[i].second);
-            });
-        }
-
-        calc_max_occ();
+        max_allowed_occ = consolidate(q_keys, q_values, shards);
     }
 
-    void init_query_buffers() {hhs = new heavyhitter_ht_t[parlay::num_workers()];}
+    void init_query_buffers() {hhs = new heavyhitter_ht_t<u8>[parlay::num_workers()];}
 
     std::tuple<u4, u4, float> search(const u4 *keys, const size_t n_keys) {
         const auto i = parlay::worker_id();
@@ -376,5 +413,11 @@ struct sindex_t {
         log_info("Done.");
     }
 };
+
+static inline parlay::sequence<u8> create_addresses(u8 id, u8 num_kmers) {
+    return parlay::tabulate(num_kmers, [&](size_t i) {
+        return make_key_from(id, i);
+    });
+}
 
 #endif //COLLINEARITY_INDEX_H

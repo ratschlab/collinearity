@@ -9,11 +9,9 @@ int main(int argc, char *argv[]) {
         // index and dump
         if (config.raw) {
             auto idx = process_fasta_raw(config.ref.c_str(), config.k, config.sigma, config.poremodel);
-            idx.calc_max_occ();
             idx.dump(config.ref);
         } else {
             auto idx = process_fasta(config.ref.c_str(), config.k, config.sigma);
-            idx.calc_max_occ();
             idx.dump(config.ref);
         }
     } else if (config.phase == config_t::query) {
@@ -30,12 +28,10 @@ int main(int argc, char *argv[]) {
     } else if (config.phase == config_t::both) {
         if (config.raw) {
             auto idx = process_fasta_raw(config.ref.c_str(), config.k, config.sigma, config.poremodel);
-            idx.calc_max_occ();
             query_raw(config.qry.c_str(), config.k, config.sigma, BATCH_SZ, idx);
         } else {
-            auto idx = process_fasta(config.ref.c_str(), config.k, config.sigma);
-            idx.calc_max_occ();
-            query(config.qry.c_str(), config.k, config.sigma, BATCH_SZ, idx);
+            auto idx = process_fasta_jaccard(config.ref.c_str(), config.k, config.sigma);
+            query_jaccard(config.qry.c_str(), config.k, config.sigma, BATCH_SZ, idx);
         }
     } else {
         log_error("Incorrect phase. Options: {load, query, both}");

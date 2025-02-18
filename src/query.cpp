@@ -76,6 +76,56 @@ void query(const char *filename, int k, int sigma, const size_t batch_sz, sindex
     log_info("Done.");
 }
 
+void query_jaccard(const char *filename, int k, int sigma, size_t batch_sz, jindex_t &index) {
+    index.init_query_buffers();
+    std::vector<std::string> headers, sequences;
+    std::vector<u4> lengths;
+    headers.reserve(batch_sz);
+    lengths.reserve(batch_sz);
+    // read sequences and convert to key-value pairs
+    KSeq record;
+    auto fd = open(filename, O_RDONLY);
+    if (fd < 0) log_error("Could not open %s because %s.", filename, strerror(errno));
+    auto ks = make_kstream(fd, read, mode::in);
+    log_info("Begin query..");
+    int nr = 0;
+    u8 total_nr = 0;
+    while (ks >> record) {
+        if (record.seq.size() > k) {
+            headers.push_back(record.name);
+            sequences.emplace_back(record.seq);
+            lengths.push_back(record.seq.size());
+            nr++;
+            if (nr == batch_sz) {
+                auto results = parlay::tabulate(nr, [&](size_t i) {
+                    return index.get(sequences[i]);
+                });
+                for (u4 i = 0; i < nr; ++i)
+                    printf("%s\t%s\t%d\n", headers[i].c_str(), get<0>(results[i]), get<1>(results[i]));
+                total_nr += nr;
+                sitrep("%lu", total_nr);
+                nr = 0;
+                headers.clear();
+                lengths.clear();
+                sequences.clear();
+            }
+        }
+    }
+    if (nr) {
+        auto results = parlay::tabulate(nr, [&](size_t i) {
+            return index.get(sequences[i]);
+        });
+        for (u4 i = 0; i < nr; ++i)
+            printf("%s\t%s\t%d\n", headers[i].c_str(), get<0>(results[i]), get<1>(results[i]));
+        total_nr += nr;
+        sitrep("%lu", total_nr);
+        nr = 0;
+        headers.clear();
+        lengths.clear();
+        sequences.clear();
+    }
+}
+
 void query_raw(const char *filename, int k, int sigma, const size_t batch_sz, sindex_t &index) {
     index.init_query_buffers();
     std::vector<std::string> headers;

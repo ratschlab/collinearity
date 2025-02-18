@@ -46,6 +46,33 @@ sindex_t process_fasta(const char* fasta_filename, int k, int sigma) {
     return index;
 }
 
+jindex_t process_fasta_jaccard(const char* fasta_filename, int k, int sigma) {
+    jindex_t index(k, sigma);
+    KSeq record;
+    auto fd = open(fasta_filename, O_RDONLY);
+    if (fd < 0) log_error("Could not open %s because %s.", fasta_filename, strerror(errno));
+    auto ks = make_kstream(fd, read, mode::in);
+
+    u4 ref_id = 0;
+    while (ks >> record) {
+        if (record.seq.size() > k) {
+            auto header = record.name + "+";
+            index.put(header, record.seq);
+
+            auto rc = revcmp_par(record.name);
+            header = record.name + "-";
+            index.put(header, rc);
+            sitrep("Processed %u sequences", ++ref_id);
+        }
+    }
+    stderrflush;
+    close(fd);
+    log_info("Processed %u sequences", ++ref_id);
+
+    index.build();
+    return index;
+}
+
 sindex_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::string poremodel) {
     const auto [pore_k, pore_levels] = load_pore_model(poremodel);
     sindex_t index;

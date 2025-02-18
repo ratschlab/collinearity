@@ -7,11 +7,9 @@
 
 #include "prelude.h"
 #include <vector>
-#include "compressed_array.h"
 #include "parlay_utils.h"
 #include "kseq++/kseq++.hpp"
 #include "cqutils.h"
-#include "parlay_hash/unordered_map.h"
 #include "index.h"
 #include "rawsignals.h"
 #include "config.h"
@@ -24,6 +22,8 @@
  * @param sigma alphabet size
  */
 sindex_t process_fasta(const char* fasta_filename, int k, int sigma);
+
+jindex_t process_fasta_jaccard(const char* fasta_filename, int k, int sigma);
 
 sindex_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::string poremodel);
 
@@ -38,10 +38,9 @@ sindex_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::st
  */
 void query(const char *filename, int k, int sigma, size_t batch_sz, sindex_t &index);
 
-void query_raw(const char *filename, int k, int sigma, size_t batch_sz, sindex_t &index);
+void query_jaccard(const char *filename, int k, int sigma, size_t batch_sz, jindex_t &index);
 
-static auto encode_dna = [](char x) { return (u4)(((x) >> 1) & 3); };
-static auto encode_qsig = [](u1 x) { return x; };
+void query_raw(const char *filename, int k, int sigma, size_t batch_sz, sindex_t &index);
 
 
 #endif //COLLINEARITY_COLLINEARITY_H
