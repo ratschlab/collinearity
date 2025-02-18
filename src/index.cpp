@@ -30,8 +30,7 @@ std::tuple<const char*, u4, float> jindex_t::get(std::string &seq) {
     float presence = (hh.top_count * 1.0) / n_keys;
     if (presence >= presence_fraction) {
         auto lb = lower_bound(frag_offsets.data(), 0, frag_offsets.size(), hh.top_key);
-        auto &header = headers[lb];
-        lb = lb? lb - frag_offsets[lb-1] : lb;
+        auto &header = headers[lb-1];
         u4 pos = (hh.top_key - lb) * (frag_len - frag_ovlp_len);
         return std::make_tuple(header.c_str(), pos, presence);
     }
