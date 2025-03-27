@@ -8,11 +8,11 @@
 
 using namespace klibpp;
 
-void index_fasta(const char* fasta_filename, index_t *idx) {
+void index_fasta(std::string &fasta_filename, index_t *idx) {
     log_info("Beginning indexing..");
     KSeq record;
-    auto fd = open(fasta_filename, O_RDONLY);
-    if (fd < 0) log_error("Could not open %s because %s.", fasta_filename, strerror(errno));
+    auto fd = open(fasta_filename.c_str(), O_RDONLY);
+    if (fd < 0) log_error("Could not open %s because %s.", fasta_filename.c_str(), strerror(errno));
     auto ks = make_kstream(fd, read, mode::in);
 
     u4 ref_id = 0;

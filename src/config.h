@@ -37,92 +37,67 @@
     }
 }
 
-struct args_t : public argparse::Args {
-//    struct idx_args_t : public argparse::Args {
-//        std::string &ref = arg("ref", "path of input reference fasta file");
-//        std::string &idx = kwarg("idx", "base path to output index file (a .cidx suffix will be added to the path). "
-//                                        "If empty, the ref path is used").set_default("");
-//        int &k = kwarg("k", "k-mer length").set_default(15);
-//        bool &jaccard = flag("jaccard", "use jaccard similarity");
-//        bool &fwd_rev = flag("fr", "index both forward and reverse strands of the reference");
-//        std::string &poremodel = kwarg("poremodel", "pore-model file path").set_default("");
-//    };
-//
-//    struct qry_args_t : public argparse::Args {
-//        std::string &idx = arg("idx", "base path to input index file (a .cidx suffix will be added to the path)");
-//        std::string &qry = arg("qry", "query file path");
-//    };
-//
-//    idx_args_t &idx_args = subcommand("index");
-//    qry_args_t &qry_args = subcommand("query");
+struct config_t : public argparse::Args {
+    enum phase_t {index, query, both};
+    phase_t phase;
+    std::string idx = "";
 
-    std::string &ref = kwarg("ref", "path of input reference fasta file. If this is not set, then the --idx must be set.").set_default("");
-    std::string &idx = kwarg("idx", "base path to output index file (a .cidx suffix will be added to the path). "
+    std::string &ref = kwarg("ref", "Path of input reference fasta file. If this is not set, then the --idx must be set.").set_default("");
+    std::string &_idx = kwarg("idx", "Base path to output index file (a .cidx suffix will be added to the path). "
                                     "If --idx and --qry are not provided, the --ref path is used to dump the index."
                                     "If this is not set, then the --ref file must be set."
                                     "This is ignored if --ref path is provided.").set_default("");
     std::string &qry = kwarg("qry", "Path to query fasta. If not provided, then the index is build and dumped to file.").set_default("");
+    std::string &out = kwarg("out", "Path to output file. Must be provided if --qry is provided.").set_default("");
     int &k = kwarg("k", "k-mer length").set_default(15);
     bool &jaccard = flag("jaccard", "Use jaccard similarity.");
     bool &fwd_rev = flag("fr", "Index both forward and reverse strands of the reference.");
+    float &presence_fraction = kwarg("pf", "Fraction of k-mers that must be present in an alignment.").set_default(0.3f);
+    int &bandwidth = kwarg("bw", "Width of the band in which kmers contained will be considered collinear").set_default(15);
+    int &jc_frag_len = kwarg("jc-frag-len", "If --jaccard is set, the sequence are indexed and queried in overlapping fragments of this length.").set_default(180);
+    int &jc_frag_ovlp_len = kwarg("jc-frag-ovlp-len", "If --jaccard is set, the sequence are indexed and queried in fragments which overlap this much.").set_default(120);
     std::string &poremodel = kwarg("poremodel", "Pore-model file path (currently unused)").set_default("");
 
-    static args_t init(int argc, char *argv[]) {
-        return argparse::parse<args_t>(argc, argv);
-    }
-};
+    bool raw = false;
+    int sigma = 4;
 
-struct config_t {
-    enum phase_t {index, query, both};
-    phase_t phase;
-    std::string ref, idx, poremodel, qry;
-    bool raw = false, fwd_rev = false, jaccard = false;
-    int k, sigma = 4;
+    config_t() = default;
 
-    config_t(int argc, char *argv[]) {
-        auto args = args_t::init(argc, argv);
-        if (args.is_valid) {
-            ref = args.ref, idx = args.idx, qry = args.qry;
-            k = args.k, jaccard = args.jaccard, fwd_rev = args.fwd_rev;
-            if (ref.empty() && idx.empty()) goto PRINT_HELP_AND_EXIT;
-            if (ref.empty() && qry.empty()) goto PRINT_HELP_AND_EXIT;
-            if (idx.empty() && qry.empty()) {
-                idx = ref + ".cidx";
-                phase = index;
-            } else if (qry.empty()) {
-                idx = idx + ".cidx";
-                phase = index;
-            } else if (!ref.empty() && !qry.empty()) {
-                phase = both;
-                idx = "";
-            } else if (!idx.empty() && !qry.empty()) {
-                phase = query;
+    static config_t init(int argc, char *argv[]) {
+        auto c = argparse::parse<config_t>(argc, argv);
+
+        if (c.is_valid) {
+            c.idx = c._idx + ".cidx";
+            if (c.ref.empty() && c._idx.empty()) goto PRINT_HELP_AND_EXIT;
+            if (c.ref.empty() && c.qry.empty()) goto PRINT_HELP_AND_EXIT;
+            if (c._idx.empty() && c.qry.empty()) {
+                c.idx = c.ref + ".cidx";
+                c.phase = index;
+            } else if (c.qry.empty()) {
+                c.phase = index;
+            } else if (!c.ref.empty() && !c.qry.empty()) {
+                c.phase = both;
+                c.idx = "";
+                if (c.out.empty()) goto PRINT_HELP_AND_EXIT;
+            } else if (!c._idx.empty() && !c.qry.empty()) {
+                c.phase = query;
+                if (c.out.empty()) goto PRINT_HELP_AND_EXIT;
             }
         } else {
             PRINT_HELP_AND_EXIT:
-            args.help();
+            c.help();
             exit(1);
         }
 
-        print();
+        c.print();
+        fprintf(stderr, "Phase: %s\n", c.phase_strs[c.phase]);
+        fprintf(stderr, "Index: %s\n", c.idx.c_str());
+        return c;
     }
 
 private:
     const char *phase_strs[3] = {"index", "query", "both"};
     const char *true_false[2] = {"false", "true"};
-    void print() const {
-        fprintf(stderr, "#################\n");
-        fprintf(stderr, "Phase: %s\n", phase_strs[phase]);
-        fprintf(stderr, "Reference: %s\n", ref.c_str());
-        fprintf(stderr, "Index: %s\n", idx.c_str());
-        fprintf(stderr, "Poremodel: %s\n", poremodel.c_str());
-        fprintf(stderr, "Query: %s\n", qry.c_str());
-        fprintf(stderr, "Raw: %s\n", true_false[raw]);
-        fprintf(stderr, "Forward & reverse: %s\n", true_false[fwd_rev]);
-        fprintf(stderr, "Use Jaccard similarity: %s\n", true_false[jaccard]);
-        fprintf(stderr, "k-mer length: %d\n", k);
-        fprintf(stderr, "alphabet size: %d\n", sigma);
-    }
 
     void dump(std::string &filename) const {
         u1 buffer[CONFIG_DUMP_SIZE] = {0};
