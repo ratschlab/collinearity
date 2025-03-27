@@ -39,5 +39,8 @@ static parlay::sequence<T> generate_random(size_t max, size_t count, int seed=0)
 #define f(x) void f##x()
 
 f(a0);
+f(a1);
+f(a2);
+f(a3);
 
 #endif //COLLINEARITY_TESTS_H

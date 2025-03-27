@@ -8,46 +8,8 @@
 
 using namespace klibpp;
 
-sindex_t process_fasta(const char* fasta_filename, int k, int sigma) {
-    sindex_t index;
-    KSeq record;
-    auto fd = open(fasta_filename, O_RDONLY);
-    if (fd < 0) log_error("Could not open %s because %s.", fasta_filename, strerror(errno));
-    auto ks = make_kstream(fd, read, mode::in);
-
-    size_t total_nk = 0, total_nbytes = 0;
-    uint64_t ref_id = 0;
-    while (ks >> record) {
-        if (record.seq.size() > k) {
-            auto kmers = create_kmers(record.seq, k, sigma, encode_dna);
-            const size_t nk = kmers.size();
-            auto addresses = create_addresses(ref_id, nk);
-            std::string name = record.name + "+";
-            index.add(name, kmers, addresses);
-            total_nk += nk;
-            ref_id++;
-
-            kmers = create_kmers(revcmp_par(record.seq), k, sigma, encode_dna);
-            expect(nk == kmers.size());
-            addresses = create_addresses(ref_id, nk);
-            name = record.name + "-";
-            index.add(name, kmers, addresses);
-            total_nk += nk;
-            ref_id++;
-
-            sitrep("Generated %zd tuples from %zd sequences", total_nk, ref_id);
-        }
-    }
-    stderrflush;
-    close(fd);
-    log_info("Generated %zd tuples from %zd sequences", total_nk, ref_id);
-
-    index.build();
-    return index;
-}
-
-jindex_t process_fasta_jaccard(const char* fasta_filename, int k, int sigma) {
-    jindex_t index(k, sigma);
+void index_fasta(const char* fasta_filename, index_t *idx) {
+    log_info("Beginning indexing..");
     KSeq record;
     auto fd = open(fasta_filename, O_RDONLY);
     if (fd < 0) log_error("Could not open %s because %s.", fasta_filename, strerror(errno));
@@ -55,64 +17,33 @@ jindex_t process_fasta_jaccard(const char* fasta_filename, int k, int sigma) {
 
     u4 ref_id = 0;
     while (ks >> record) {
-        if (record.seq.size() > k) {
-            auto header = record.name + "+";
-            index.put(header, record.seq);
-
-            auto rc = revcmp_par(record.name);
-            header = record.name + "-";
-            index.put(header, rc);
-            sitrep("Processed %u sequences", ++ref_id);
-        }
+        idx->add(record.name, record.seq);
+        sitrep("processed %u references.", ++ref_id);
     }
+
     stderrflush;
     close(fd);
-    log_info("Processed %u sequences", ++ref_id);
-
-    index.build();
-    return index;
+    idx->build();
 }
 
-sindex_t process_fasta_raw(const char* fasta_filename, int k, int sigma, std::string poremodel) {
+void index_fasta_raw(const char* fasta_filename, std::string poremodel, index_t *idx) {
+    throw "Not implemented";
     const auto [pore_k, pore_levels] = load_pore_model(poremodel);
-    sindex_t index;
     KSeq record;
     auto fd = open(fasta_filename, O_RDONLY);
     if (fd < 0) log_error("Could not open %s because %s.", fasta_filename, strerror(errno));
     auto ks = make_kstream(fd, read, mode::in);
 
-    size_t total_nk = 0, total_nbytes = 0;
-    uint64_t ref_id = 0;
+    u4 ref_id = 0;
     while (ks >> record) {
-        if (record.seq.size() > k + pore_k) {
-            auto squiggles = sequence2squiggles(record.seq, pore_k, pore_levels);
-            auto quant = quantize_signal_simple(squiggles);
-            auto kmers = create_kmers(quant, k, sigma, encode_qsig);
-            auto nk = kmers.size();
-            auto addresses = create_addresses(ref_id, nk);
-            std::string name = record.name + "+";
-            index.add(name, kmers, addresses);
-            total_nk += nk;
-            ref_id++;
-
-            squiggles = sequence2squiggles(revcmp_par(record.seq), pore_k, pore_levels);
-            quant = quantize_signal_simple(squiggles);
-            kmers = create_kmers(quant, k, sigma, encode_qsig);
-            nk = kmers.size();
-            addresses = create_addresses(ref_id, nk);
-            name = record.name + "-";
-            index.add(name, kmers, addresses);
-            total_nk += nk;
-            ref_id++;
-
-            sitrep("Generated %zd tuples from %zd sequences", total_nk, ref_id);
-        }
+        auto squiggles = sequence2squiggles(record.seq, pore_k, pore_levels);
+        auto quant = quantize_signal_simple(squiggles);
+        // todo - add to index
+        sitrep("processed %u references.", ++ref_id);
     }
+
     stderrflush;
     close(fd);
-    log_info("Generated %zd tuples from %zd sequences", total_nk, ref_id);
-
-    index.build();
-    return index;
+    idx->build();
 }
 

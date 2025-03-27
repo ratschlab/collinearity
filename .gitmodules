@@ -29,3 +29,6 @@
 [submodule "external/argparse"]
 	path = external/argparse
 	url = https://github.com/morrisfranken/argparse.git
+[submodule "external/nanobind"]
+	path = external/nanobind
+	url = https://github.com/wjakob/nanobind

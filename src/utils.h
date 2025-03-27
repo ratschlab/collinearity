@@ -57,7 +57,7 @@ static inline parlay::sequence<u4> create_kmers(const T& sequence, int k, int si
     size_t n = sequence.size();
     if (k > n) return {};
     return parlay::tabulate(n - k + 1, [&](size_t i){
-        return encode_kmer(sequence.data() + i, k, sigma, encoder);
+        return encode_kmer(sequence.begin() + i, k, sigma, encoder);
     });
 }
 

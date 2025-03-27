@@ -44,7 +44,7 @@ static char *time_str(){
 #define log_error(fmt, ...) do { \
     fprintf(stderr, "[%s]" RED "ERROR: " fmt RESET " at %s:%i\n",       \
             time_str(), ##__VA_ARGS__, __FILE__, __LINE__);     \
-    assert(false);                                                                      \
+    exit(1);                                                                      \
 } while(0)
 
 #define log_info(fmt, ...) do { \
@@ -98,10 +98,6 @@ typedef uint64_t u8;
 #define str_endswith(str, suffix) (streq((suffix), (str) + (strlen(str) - strlen(suffix))))
 #define str_startswith(str, prefix)
 
-
-// K is hardcoded here. change later
-//#define KMER_LENGTH 15
-//#define SIGMA 4
 #define BATCH_SZ 4096
 
 #endif //COLLINEARITY_PRELUDE_H
