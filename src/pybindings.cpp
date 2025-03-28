@@ -6,8 +6,62 @@
 #include <pybind11/detail/descr.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include "argparse/argparse.hpp"
 
 namespace py = pybind11;
+
+//static std::vector<const char*> kwargs_to_argv(const py::kwargs& kwargs, std::vector<std::string> &args) {
+//    std::vector<const char*> argv;
+//
+//    // First argument is usually the program name, conventionally
+//    args.emplace_back("program_name");
+//    argv.push_back(args.back().c_str());
+//
+//    // Convert kwargs into "--key=value" format
+//    for (auto& item : kwargs) {
+//        std::string key = item.first.cast<std::string>();
+//        std::string value = py::str(item.second);  // Convert value to string
+//        args.emplace_back("--" + key + "=" + value);
+//        argv.push_back(args.back().c_str());  // Store pointer to the new string
+//    }
+//
+//    return argv;
+//}
+
+static std::vector<const char*> kwargs_to_argv(const py::args& args, const py::kwargs& kwargs,
+                                               std::vector<std::string>& arg_strings)  // Store actual argument strings
+{
+    std::vector<const char*> argv;  // Store pointers to C-style strings
+
+    // First argument is conventionally the program name
+    arg_strings.emplace_back("program_name");
+    argv.push_back(arg_strings.back().c_str());
+
+    // Handle positional arguments (flags)
+    for (auto& arg : args) {
+        std::string flag = "--" + arg.cast<std::string>();  // Convert to "--flag" format
+        arg_strings.emplace_back(flag);
+    }
+
+    // Handle keyword arguments ("--key=value")
+    for (auto& item : kwargs) {
+        std::string key = item.first.cast<std::string>();
+        std::string value = py::str(item.second);  // Convert value to string
+        if (key.size()==1) arg_strings.emplace_back("-" + key + "=" + value);
+        else arg_strings.emplace_back("--" + key + "=" + value);
+    }
+
+    // Print for demonstration
+//    for (auto &s : arg_strings)
+//        std::cout << s << '\n';
+//    printf("-----------\n");
+
+    for (auto &s: arg_strings)
+        argv.push_back(s.c_str());
+
+    // Now `argc` and `argv.data()` can be used in a function expecting C-style args
+    return argv;
+}
 
 struct Alignment {
     std::string ctg;
@@ -20,109 +74,26 @@ struct Alignment {
         ctg(header), r_st(start), r_en(start + qry_len), strand(fwd?1:-1), pres_frac(pres_frac) {}
 };
 
-//struct rt_index_t {
-//    int k;
-//    index_t index;
-//
-//    explicit rt_index_t(int k): k(k), index(k) {}
-//
-//    rt_index_t(const std::string& filename, int k):
-//        k(k), index(process_fasta(filename.c_str(), k, 4)) {}
-//
-//    rt_index_t(const std::string& filename, int k, std::string &poremodel):
-//        k(k), index(process_fasta_raw(filename.c_str(), k, 16, poremodel)) {}
-//
-//    void load(const std::string& basename) {
-//        index.load(basename);
-//    }
-//
-//    void dump(const std::string& basename) {
-//        index.dump(basename);
-//    }
-//
-//    std::vector<alignment_t> query_batch(std::vector<std::string> &sequences) {
-//        const auto B = sequences.size();
-//        std::vector<alignment_t> alignments(B);
-//        parlay::for_each(parlay::iota(B), [&](size_t i){
-//            const auto &seq = sequences[i];
-//            u4 n = seq.size();
-//            parlay::sequence<u4> keys;
-//            for (int j = 0; j < n-k+1; ++j) {
-//                keys[j] = encode_kmer(seq.data() + i, k, 4, encode_dna);
-//                const auto [trg_id, trg_pos, support] = index.search(keys.data(), keys.size());
-//                if (trg_id == -1) {
-//                    alignments[i].trg_name = '*', alignments[i].trg_pos = -1, alignments[i].presence = 0;
-//                } else {
-//                    alignments[i].trg_name = index.headers[trg_id], alignments[i].trg_pos = trg_pos, alignments[i].presence = support;
-//                }
-//            }
-//        });
-//        return alignments;
-//    }
-//
-//    std::vector<alignment_t> query_batch(std::vector<std::vector<double>> &signals) {
-//        const auto B = signals.size();
-//        std::vector<alignment_t> alignments(B);
-//        parlay::for_each(parlay::iota(B), [&](size_t i){
-//            auto &signal = signals[i];
-//            parlay::sequence<double> calibrated_signal(signal.begin(), signal.end());
-//            tstat_segmenter_t segmenter;
-//            auto events = generate_events(calibrated_signal, segmenter);
-//            auto quantized = quantize_signal(events);
-//            parlay::sequence<u4> keys(quantized.size() - k + 1);
-//            for (int j = 0; j < quantized.size() - k + 1; ++j)
-//                keys[i] = encode_kmer(quantized.data() + j, k, 16, encode_qsig);
-//            const auto [trg_id, trg_pos, support] = index.search(keys.data(), keys.size());
-//            if (trg_id == -1) {
-//                alignments[i].trg_name = '*', alignments[i].trg_pos = -1, alignments[i].presence = 0;
-//            } else {
-//                alignments[i].trg_name = index.headers[trg_id], alignments[i].trg_pos = trg_pos, alignments[i].presence = support;
-//            }
-//        });
-//        return alignments;
-//    }
-//
-//    std::vector<alignment_t> query_batch(std::vector<std::vector<int>> &signals, std::vector<double> &digitisations,
-//                                         std::vector<double> &offsets, std::vector<double> &ranges) {
-//        const auto B = signals.size();
-//        std::vector<alignment_t> alignments(B);
-//        parlay::for_each(parlay::iota(B), [&](size_t i){
-//            auto &signal = signals[i];
-//            parlay::sequence<double> calibrated_signal(signal.size());
-//            for (int j = 0; j < signal.size(); ++j) {
-//                calibrated_signal[j] = TO_PICOAMPS(signal[j], digitisations[i], offsets[i], ranges[i]);
-//            }
-//            tstat_segmenter_t segmenter;
-//            auto events = generate_events(calibrated_signal, segmenter);
-//            auto quantized = quantize_signal(events);
-//            parlay::sequence<u4> keys(quantized.size() - k + 1);
-//            for (int j = 0; j < quantized.size() - k + 1; ++j)
-//                keys[i] = encode_kmer(quantized.data() + j, k, 16, encode_qsig);
-//            const auto [trg_id, trg_pos, support] = index.search(keys.data(), keys.size());
-//            if (trg_id == -1) {
-//                alignments[i].trg_name = '*', alignments[i].trg_pos = -1, alignments[i].presence = 0;
-//            } else {
-//                alignments[i].trg_name = index.headers[trg_id], alignments[i].trg_pos = trg_pos, alignments[i].presence = support;
-//            }
-//        });
-//        return alignments;
-//    }
-//
-//
-//};
-
-
 struct Index {
-    explicit Index(const std::string &input, int k=15, bool fwd_reverse=true, bool jaccard=true) {
-        if (jaccard) idx = new j_index_t(k, 4, fwd_reverse);
-        else idx = new c_index_t(k, 4, fwd_reverse);
+    explicit Index(std::string &input, const py::args& args, const py::kwargs& kwargs) {
+        auto argv = kwargs_to_argv(args, kwargs, argvec);
+        auto config = argparse::parse<config_t>(argv.size(), argv.data());
+//        config.print();
+        if (config.jaccard) log_info("Creating Jaccard index");
+        else log_info("Creating a normal index");
+        if (config.fwd_rev) log_info("Indexing both fwd and rev references");
+        else log_info("Indexing fwd references only");
+
+        if (config.jaccard) idx = new j_index_t(config);
+        else idx = new c_index_t(config);
+
         if (str_endswith(input.c_str(), ".cidx")) {
             // This is an index. Load it
             log_info("Loading index from %s", input.c_str());
             idx->load(input);
         } else if (str_endswith(input.c_str(), ".fa") || str_endswith(input.c_str(), ".fasta")) {
             log_info("Building index from %s", input.c_str());
-            index_fasta(input.c_str(), idx);
+            index_fasta(input, idx);
         } else if (str_endswith(input.c_str(), ".fa.gz") || str_endswith(input.c_str(), ".fasta.gz")) {
             // zipped reference. will support it later
             log_error("This is not implemented yet");
@@ -160,6 +131,7 @@ struct Index {
 
 private:
     index_t *idx = nullptr;
+    std::vector<std::string> argvec;
 };
 
 // Binding the function to the Python module
@@ -176,8 +148,7 @@ PYBIND11_MODULE(_core, m) {
             .def_readonly("pres_frac", &Alignment::pres_frac);
 
     py::class_<Index>(m, "Index")
-            .def(py::init<const std::string &, int, bool, bool>(),
-                 py::arg("input"), py::arg("k")=15, py::arg("fwd_reverse")=true, py::arg("jaccard")=true)
+            .def(py::init<std::string&, const py::args&, const py::kwargs&>(), py::arg("input"))
             .def("dump", &Index::dump)
             .def("query", &Index::query)
             .def("query_batch", &Index::query_batch);

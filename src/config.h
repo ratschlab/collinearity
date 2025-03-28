@@ -52,7 +52,7 @@ struct config_t : public argparse::Args {
     int &k = kwarg("k", "k-mer length").set_default(15);
     bool &jaccard = flag("jaccard", "Use jaccard similarity.");
     bool &fwd_rev = flag("fr", "Index both forward and reverse strands of the reference.");
-    float &presence_fraction = kwarg("pf", "Fraction of k-mers that must be present in an alignment.").set_default(0.3f);
+    float &presence_fraction = kwarg("pf", "Fraction of k-mers that must be present in an alignment.").set_default(0.1f);
     int &bandwidth = kwarg("bw", "Width of the band in which kmers contained will be considered collinear").set_default(15);
     int &jc_frag_len = kwarg("jc-frag-len", "If --jaccard is set, the sequence are indexed and queried in overlapping fragments of this length.").set_default(180);
     int &jc_frag_ovlp_len = kwarg("jc-frag-ovlp-len", "If --jaccard is set, the sequence are indexed and queried in fragments which overlap this much.").set_default(120);
