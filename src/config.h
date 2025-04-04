@@ -53,6 +53,7 @@ struct config_t : public argparse::Args {
     bool &jaccard = flag("jaccard", "Use jaccard similarity.");
     bool &fwd_rev = flag("fr", "Index both forward and reverse strands of the reference.");
     float &presence_fraction = kwarg("pf", "Fraction of k-mers that must be present in an alignment.").set_default(0.1f);
+    std::string &_sort_block_size = kwarg("sort-blksz", "Block size to use in sorting.").set_default("");
     int &bandwidth = kwarg("bw", "Width of the band in which kmers contained will be considered collinear").set_default(15);
     int &jc_frag_len = kwarg("jc-frag-len", "If --jaccard is set, the sequence are indexed and queried in overlapping fragments of this length.").set_default(180);
     int &jc_frag_ovlp_len = kwarg("jc-frag-ovlp-len", "If --jaccard is set, the sequence are indexed and queried in fragments which overlap this much.").set_default(120);
@@ -60,6 +61,7 @@ struct config_t : public argparse::Args {
 
     bool raw = false;
     int sigma = 4;
+    u8 sort_block_size;
 
     config_t() = default;
 
@@ -67,6 +69,9 @@ struct config_t : public argparse::Args {
         auto c = argparse::parse<config_t>(argc, argv);
 
         if (c.is_valid) {
+            if (c._sort_block_size.empty()) c.sort_block_size = MEMPOOL_BLOCKSZ;
+            else c.sort_block_size = hmsize2bytes(c._sort_block_size);
+            c.sort_block_size = (c.sort_block_size < MEMPOOL_BLOCKSZ)? MEMPOOL_BLOCKSZ : c.sort_block_size;
             c.idx = c._idx + ".cidx";
             if (c.ref.empty() && c._idx.empty()) goto PRINT_HELP_AND_EXIT;
             if (c.ref.empty() && c.qry.empty()) goto PRINT_HELP_AND_EXIT;

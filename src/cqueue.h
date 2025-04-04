@@ -7,21 +7,25 @@
 
 #include <deque>
 #include "prelude.h"
-
-#define BLOCK_SZ (256 MiB)
+#include "mempool.h"
 
 template <typename T>
 struct cqueue_t {
     struct block_t {
-        std::vector<T> data;
+        mempool_t<T> &mp;
+        T* data = nullptr;
         size_t start = 0, end = 0;
         block_t(const block_t&) = delete;
         block_t& operator = (const block_t&) = delete;
         block_t(block_t &&other) = default;
-        block_t() { data.resize(BLOCK_SZ); }
+        block_t() : mp(mempool_t<T>::getInstance()), data(mp.reserve()) { }
+        ~block_t() {
+            if (data) mp.release(data);
+            data = nullptr;
+        }
 
         /** how many items can I push to the buffer */
-        inline size_t pushable_size() { return data.size() - end; }
+        inline size_t pushable_size() { return MEMPOOL_BLOCKSZ - end; }
         /** how many items can I pop from the buffer */
         inline size_t poppable_size() { return end - start; }
         /** can I push items into the block? */
@@ -38,7 +42,7 @@ struct cqueue_t {
          */
         inline size_t push(T* src, size_t n_elements) {
             size_t n = MIN(pushable_size(), n_elements);
-            memcpy(data.data() + end, src, n * sizeof(T));
+            memcpy(data + end, src, n * sizeof(T));
             end += n;
             return n;
         }
@@ -50,7 +54,7 @@ struct cqueue_t {
          */
         inline size_t pop(T* dst, size_t n_elements) {
             size_t n = MIN(end - start, n_elements);
-            memcpy(dst, data.data() + start, n * sizeof(T));
+            memcpy(dst, data + start, n * sizeof(T));
             start += n;
             if (!poppable_size()) reset();
             return n;
@@ -90,13 +94,13 @@ public:
     size_t pop_front(T* dst, const size_t n_elements) {
         size_t remaining = n_elements;
         while (remaining) {
-            if (!blocks.empty() && !blocks.front().is_poppable()) blocks.pop_front();
             if (blocks.empty()) break;
             auto &block = blocks.front();
             if (block.is_poppable()) {
                 size_t n = block.pop(dst, remaining);
                 dst += n, remaining -= n, _size -= n;
             }
+            if (!blocks.empty() && !blocks.front().is_poppable()) blocks.pop_front();
         }
         return n_elements - remaining;
     }
@@ -110,14 +114,14 @@ public:
     size_t pop_front(cqueue_t &dst, size_t n_elements) {
         size_t remaining = n_elements;
         while (remaining) {
-            if (!blocks.empty() && !blocks.front().is_poppable()) blocks.pop_front();
             if (blocks.empty()) break;
             auto &block = blocks.front();
             if (block.is_poppable()) {
                 size_t n = MIN(block.poppable_size(), remaining);
-                dst.push_back(block.data.data() + block.start, n);
+                dst.push_back(block.data + block.start, n);
                 block.start += n, remaining -= n, _size -= n;
             }
+            if (!blocks.empty() && !blocks.front().is_poppable()) blocks.pop_front();
         }
         return n_elements - remaining;
     }
@@ -136,13 +140,91 @@ public:
      * @return the element at index i
      */
     const T& operator[](const size_t i) const {
-        if (i < _size) return blocks[i / BLOCK_SZ].data[i % BLOCK_SZ];
+        if (i < _size) return blocks[MPDIV(i)].data[MPMOD(i)];
         else log_error("Array index out of bounds.");
     }
 
     T operator[](const size_t i) {
-        if (i < _size) return blocks[i / BLOCK_SZ].data[i % BLOCK_SZ];
+        if (i < _size) return blocks[MPDIV(i)].data[MPMOD(i)];
         else log_error("Array index out of bounds.");
+    }
+
+    class iterator_t {
+    private:
+        cqueue_t<T> &q;
+        size_t i;
+    public:
+        using value_type = T;
+        using difference_type = size_t;
+        using pointer = T*;
+        using reference = T&;
+        using iterator_category = std::forward_iterator_tag;
+
+        // Constructor
+        explicit iterator_t(cqueue_t<T> &q) : q(q), i(0) {}
+        iterator_t(cqueue_t<T> &q, size_t i) : q(q), i(i) {}
+
+        // Dereference operator
+        T operator*() { return q[i]; }
+
+        // Arrow operator
+        T* operator->() { return &(q[i]); }
+
+        // Prefix increment
+        iterator_t& operator++() {
+            ++i;
+            return *this;
+        }
+
+        // Postfix increment
+        iterator_t operator++(int) {
+            iterator_t temp = *this;
+            ++(*this);
+            return temp;
+        }
+
+        // Difference between two iterators
+        difference_type operator-(const iterator_t& other) const {
+            return i - other.i;
+        }
+
+        // Subscript operator
+        T& operator[](difference_type n) const {
+            return *(q[i + n]);
+        }
+
+        // Comparison operators
+        bool operator==(const iterator_t& other) const { return i == other.i; }
+        bool operator!=(const iterator_t& other) const { return i != other.i; }
+        bool operator<(const iterator_t& other) const { return i < other.i; }
+        bool operator<=(const iterator_t& other) const { return i <= other.i; }
+        bool operator>(const iterator_t& other) const { return i > other.i; }
+        bool operator>=(const iterator_t& other) const { return i >= other.i; }
+    };
+
+    // Begin and End functions
+    iterator_t begin() { return iterator_t(*this); }
+    iterator_t end() { return iterator_t(*this, size()); }
+    iterator_t it(size_t i) { return iterator_t(*this, i); }
+
+    void dump(FILE *fp) {
+        fwrite(&_size, sizeof(_size), 1, fp);
+        for (auto &block : blocks)
+            fwrite(block.data, sizeof(T), block.end - block.start, fp);
+    }
+
+    void load(FILE *fp) {
+        if (_size) log_error("Loading a file into a non-empty queue is not supported.");
+        size_t size;
+        expect(fread(&size, sizeof(size), 1, fp) == 1);
+        _size = size;
+        while (size) {
+            size_t rc = std::min(MEMPOOL_BLOCKSZ, size);
+            blocks.emplace_back();
+            expect(fread(blocks.back().data, sizeof(T), rc, fp) == rc);
+            blocks.back().end = rc;
+            size -= rc;
+        }
     }
 };
 

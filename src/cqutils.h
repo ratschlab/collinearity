@@ -123,7 +123,7 @@ static void cq_get_partitions(cqueue_t<K>& keys, const size_t M, std::vector<siz
 }
 
 template <typename K>
-static void cq_get_search_partitions(cqueue_t<K>& keys_A, cqueue_t<K>& keys_B, const size_t M,
+static void cq_get_merge_partitions_stable(cqueue_t<K>& keys_A, cqueue_t<K>& keys_B, const size_t M,
                                      std::vector<std::pair<size_t, size_t>>& partition_sizes) {
     const size_t nA = keys_A.size(), nB = keys_B.size();
     size_t offA = 0, offB = 0;
@@ -165,7 +165,7 @@ static void cq_merge_by_key(cqueue_t<K> &keys_A, cqueue_t<V> &values_A,
 
     /// find out the partitions
     std::vector<std::pair<size_t, size_t>> partition_sizes;
-    cq_get_merge_partitions(keys_A, keys_B, M, partition_sizes);
+    cq_get_merge_partitions_stable(keys_A, keys_B, M, partition_sizes);
 
     /// merge partitions
     auto d_keys = (K*)d_buf;
@@ -202,6 +202,9 @@ static void cq_sort_by_key(cqueue_t<K> &keys, cqueue_t<V> &values, const size_t 
     auto d_keys = (K*)d_buf;
     auto d_values = (V*)(d_keys + M);
 
+    PRINT_MEM_USAGE(K);
+    PRINT_MEM_USAGE(V);
+
     if (N <= M) {
         size_t nk = keys.pop_front(d_keys, N);
         size_t nv = values.pop_front(d_values, N);
@@ -214,6 +217,10 @@ static void cq_sort_by_key(cqueue_t<K> &keys, cqueue_t<V> &values, const size_t 
 
         keys.push_back(d_keys, N);
         values.push_back(d_values, N);
+
+        log_debug(LOW, "Sorted a single block:");
+        PRINT_MEM_USAGE(K);
+        PRINT_MEM_USAGE(V);
     }
 
     else {
@@ -236,6 +243,8 @@ static void cq_sort_by_key(cqueue_t<K> &keys, cqueue_t<V> &values, const size_t 
         log_debug(LOW, "Created %zd sorted lists", sorted.size());
         expect(keys.size() == 0);
         expect(values.size() == 0);
+        PRINT_MEM_USAGE(K);
+        PRINT_MEM_USAGE(V);
 
         int merge_round = 1;
         while (sorted.size() > 2) {
@@ -250,6 +259,8 @@ static void cq_sort_by_key(cqueue_t<K> &keys, cqueue_t<V> &values, const size_t 
                             M, d_buf, out_keys, out_values);
             sorted.push(std::make_pair(std::move(out_keys), std::move(out_values)));
             log_debug(LOW, "Left with %zd sorted lists", sorted.size());
+            PRINT_MEM_USAGE(K);
+            PRINT_MEM_USAGE(V);
         }
 
         // last 2 blocks remaining. merge
@@ -261,11 +272,13 @@ static void cq_sort_by_key(cqueue_t<K> &keys, cqueue_t<V> &values, const size_t 
         cq_merge_by_key(kv_pair_left.first, kv_pair_left.second, kv_pair_right.first, kv_pair_right.second, M, d_buf, keys, values);
         expect(keys.size() == N);
         expect(values.size() == N);
+        PRINT_MEM_USAGE(K);
+        PRINT_MEM_USAGE(V);
     }
 }
 
-template <typename K>
-static void cq_count_unique(cqueue_t<K> &keys, const size_t M, void* d_buf, cqueue_t<K> &uniqkeys, cqueue_t<u4> &counts) {
+template <typename K, typename C>
+static void cq_count_unique(cqueue_t<K> &keys, const size_t M, void* d_buf, cqueue_t<K> &uniqkeys, cqueue_t<C> &counts) {
     std::vector<size_t> partition_sizes;
     cq_get_partitions(keys, M, partition_sizes);
     auto d_keys_in = (K*)d_buf;

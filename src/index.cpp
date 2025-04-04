@@ -3,6 +3,7 @@
 //
 #include "collinearity.h"
 #include "index.h"
+#include "vbyte.h"
 
 
 // I am assuming that the number of sequences won't exceed 2^20 (1M)
@@ -17,28 +18,15 @@
 
 static void dump_headers(FILE *fp, std::vector<std::string> &headers);
 static void load_headers(FILE *fp, std::vector<std::string> &headers);
+template <typename V>
+static void dump_coordinates(FILE *fp, parlay::sequence<u8> &offsets, cqueue_t<V> &values);
+template <typename V>
+static void load_coordinates(FILE *fp, parlay::sequence<u8> &offsets, cqueue_t<V> &values);
+
 template <typename K, typename V>
-static void dump_hashmap(FILE *fp, shard_t<K,V> *shards);
-template <typename K, typename V>
-static void load_hashmap(FILE *fp, shard_t<K,V> *shards);
-template <typename K, typename V>
-static void dump_values(FILE *fp, shard_t<K,V> *shards);
-template <typename K, typename V>
-static void load_values(FILE *fp, shard_t<K,V> *shards);
+static u4 consolidate(cqueue_t<K> &q_keys, cqueue_t<V> &q_values, parlay::sequence<u8> &value_offsets, u4 block_sz);
 
 ////////////////////////////////////////////////////////////////////////////////
-
-template<typename K, typename V>
-std::pair<V *, V *> get(shard_t<K,V> *shards, K key) {
-    u4 shard_id = SHARD(key);
-    auto &shard = shards[shard_id];
-    if (shard.tuples.contains(SKEY(key))) {
-        auto val = shard.tuples[SKEY(key)];
-        auto offset = val >> 32, count = val & 0xffffffff;
-//            if (count >= max_allowed_occ) return {nullptr, nullptr};
-        return {shard.values.data() + offset, shard.values.data() + offset + count};
-    } else return {nullptr, nullptr};
-}
 
 void j_index_t::init_query_buffers() {
     log_info("In j_index_t");
@@ -67,7 +55,7 @@ std::tuple<const char *, u4, float> j_index_t::search(parlay::slice<char *, char
     hh.reset();
     parlay::sequence<u4> keys = create_kmers_1t(seq, k, sigma, encode_dna);
     for (auto key : keys) {
-        const auto &[vbegin, vend] = get(shards, key);
+        const auto &[vbegin, vend] = get(key);
         for (auto v = vbegin; v != vend; ++v) hh.insert(*v);
     }
     if (hh.top_key != -1) {
@@ -81,7 +69,8 @@ std::tuple<const char *, u4, float> j_index_t::search(parlay::slice<char *, char
 }
 
 void j_index_t::build() {
-    max_occ = consolidate(q_keys, q_values, shards);
+    value_offsets.resize(n_keys+1);
+    max_occ = consolidate(q_keys, q_values, value_offsets, sort_blocksz);
 }
 
 void j_index_t::dump(const std::string &filename) {
@@ -89,8 +78,7 @@ void j_index_t::dump(const std::string &filename) {
     expect(ftell(fp) == CONFIG_DUMP_SIZE);
     if (!fp) log_error("Cannot open file %s because %s.", filename.c_str(), strerror(errno));
     dump_headers(fp, headers);
-    dump_hashmap(fp, shards);
-    dump_values(fp, shards);
+    dump_coordinates(fp, value_offsets, q_values);
     fwrite(&max_occ, sizeof(max_occ), 1, fp);
 
     log_info("Dumping fragment offsets..");
@@ -99,7 +87,6 @@ void j_index_t::dump(const std::string &filename) {
     fwrite(buffer, sizeof(u4), 3, fp);
     fwrite(frag_offsets.data(), sizeof(u4), buffer[0], fp);
     log_info("Done");
-
     fclose(fp);
 }
 
@@ -109,8 +96,7 @@ void j_index_t::load(const std::string &filename) {
     if (fseek(fp, CONFIG_DUMP_SIZE, SEEK_SET))
         log_error("Could not fseek because %s.", strerror(errno));
     load_headers(fp, headers);
-    load_hashmap(fp, shards);
-    load_values(fp, shards);
+    load_coordinates(fp, value_offsets, q_values);
     expect(fread(&max_occ, sizeof(max_occ), 1, fp) == 1);
 
     log_info("Loading fragment offsets..");
@@ -120,7 +106,6 @@ void j_index_t::load(const std::string &filename) {
     frag_len = buffer[1], frag_ovlp_len = buffer[2];
     expect(fread(frag_offsets.data(), sizeof(u4), buffer[0], fp) == buffer[0]);
     log_info("Done");
-
     fclose(fp);
 }
 
@@ -130,7 +115,8 @@ void c_index_t::init_query_buffers() {
 }
 
 void c_index_t::build() {
-    max_occ = consolidate(q_keys, q_values, shards);
+    value_offsets.resize(n_keys+1);
+    max_occ = consolidate(q_keys, q_values, value_offsets, sort_blocksz);
 }
 
 void c_index_t::add(std::string &name, parlay::slice<char *, char *> seq) {
@@ -153,7 +139,7 @@ std::tuple<const char *, u4, float> c_index_t::search(parlay::slice<char *, char
     hh.reset();
     parlay::sequence<u4> keys = create_kmers_1t(seq, k, sigma, encode_dna);
     for (u4 j = 0; j < keys.size(); ++j) {
-        const auto &[vbegin, vend] = get(shards, keys[j]);
+        const auto &[vbegin, vend] = get(keys[j]);
         for (auto v = vbegin; v != vend; ++v) {
             u8 ref_id = get_id_from(*v);
             u8 ref_pos = get_pos_from(*v);
@@ -182,10 +168,8 @@ void c_index_t::dump(const std::string &filename) {
     expect(ftell(fp) == CONFIG_DUMP_SIZE);
     if (!fp) log_error("Cannot open file %s because %s.", filename.c_str(), strerror(errno));
     dump_headers(fp, headers);
-    dump_hashmap(fp, shards);
-    dump_values(fp, shards);
+    dump_coordinates(fp, value_offsets, q_values);
     fwrite(&max_occ, sizeof(max_occ), 1, fp);
-
     fclose(fp);
 }
 
@@ -195,10 +179,8 @@ void c_index_t::load(const std::string &filename) {
     if (fseek(fp, CONFIG_DUMP_SIZE, SEEK_SET))
         log_error("Could not fseek because %s.", strerror(errno));
     load_headers(fp, headers);
-    load_hashmap(fp, shards);
-    load_values(fp, shards);
+    load_coordinates(fp, value_offsets, q_values);
     expect(fread(&max_occ, sizeof(max_occ), 1, fp) == 1);
-
     fclose(fp);
 }
 
@@ -256,97 +238,53 @@ static parlay::sequence<u4> get_minimizer_indices(parlay::sequence<u4> &keys, in
     return parlay::unique(midx);
 }
 
-
-
-template <typename K, typename V>
-static void put_in_shard(shard_t<K, V> &shard, parlay::sequence<K> &all_keys, parlay::sequence<V> &all_values, parlay::sequence<u8> &my_indices) {
-    u4 p = my_indices.size();
-    parlay::sequence<K> my_keys(p);
-    parlay::sequence<V> my_values(p);
-    for (u4 i = 0; i < p; ++i) {
-        my_keys[i] = SKEY(all_keys[my_indices[i]]);
-        my_values[i] = all_values[my_indices[i]];
-    }
-    simple_sort_by_key(my_keys, my_values);
-    auto offsets = find_run_offsets(my_keys);
-
-    size_t old_n_vals = shard.values.size();
-    shard.values.append(my_values);
-
-    for (int i = 0; i < offsets.size()-1; ++i) {
-        auto key = my_keys[offsets[i]];
-        auto n_vals = offsets[i+1] - offsets[i];
-        auto offset = old_n_vals + offsets[i];
-        shard.tuples[key] = ((offset << 32) | n_vals);
-    }
+template <typename T>
+static T calc_max_occ(parlay::sequence<T> &counts) {
+    auto f_counts = parlay::filter(counts, [](T x) { return x != 0; });
+    parlay::integer_sort_inplace(f_counts);
+    auto occ = f_counts[f_counts.size() * 99/100];
+    log_info("Min occ. = %lu", f_counts.front());
+    log_info("Median occ. = %lu", f_counts[f_counts.size()/2]);
+    log_info("Max occ. = %lu", f_counts.back());
+    log_info("99%% = %lu", occ);
+    return occ;
 }
 
 template <typename K, typename V>
-static u4 calc_max_occ(shard_t<K,V> *shards) {
-    u4 max_allowed_occ = -1;
-    parlay::sequence<u4> n_unique_keys_per_shard(N_SHARDS);
-    parlay::for_each(parlay::iota(N_SHARDS), [&](size_t i){
-        n_unique_keys_per_shard[i] = shards[i].tuples.size();
-    });
-    u4 total_uniq_keys = parlay::reduce(n_unique_keys_per_shard);
-    log_info("# unique kmers = %u", total_uniq_keys);
-    if (total_uniq_keys) {
-        parlay::sequence<u4> occ(total_uniq_keys);
-        auto [offset, total] = parlay::scan(n_unique_keys_per_shard);
-        expect(total == total_uniq_keys);
-
-        parlay::for_each(parlay::iota(N_SHARDS), [&](size_t i) {
-            auto my_off = offset[i];
-            int j = 0;
-            for (auto &[key, value]: shards[i].tuples) {
-                occ[my_off + j] = value & 0xffffffff;
-                j++;
-            }
-        });
-        parlay::sort_inplace(occ);
-        log_info("Min occ. = %u", occ[0]);
-        log_info("Median occ. = %u", occ[total_uniq_keys / 2]);
-        log_info("Max occ. = %u", occ[total_uniq_keys - 1]);
-        max_allowed_occ = occ[total_uniq_keys * .99];
-        log_info("99%% = %u", max_allowed_occ);
-    } else max_allowed_occ = 1<<31;
-    return max_allowed_occ;
-}
-
-template <typename K, typename V>
-static u4 consolidate(cqueue_t<K> &q_keys, cqueue_t<V> &q_values, shard_t<K, V> *shards) {
+static u4 consolidate(cqueue_t<K> &q_keys, cqueue_t<V> &q_values, parlay::sequence<u8> &value_offsets, u4 block_sz) {
     expect(q_keys.size() == q_values.size());
     log_info("Sorting %zd tuples..", q_keys.size());
-    size_t bufsz = (sizeof(K) + sizeof(V)) * BLOCK_SZ;
+    size_t bufsz = (sizeof(K) + sizeof(V)) * block_sz;
     auto buf = malloc(bufsz);
-    cq_sort_by_key(q_keys, q_values, BLOCK_SZ, buf);
+    cq_sort_by_key(q_keys, q_values, block_sz, buf);
 
+    log_info("Counting unique keys..");
     std::vector<size_t> partition_sizes;
-    cq_get_partitions(q_keys, BLOCK_SZ, partition_sizes);
+    cq_get_partitions(q_keys, block_sz, partition_sizes);
     verify(parlay::reduce(partition_sizes) == q_keys.size());
-
-    parlay::sequence<K> tmp_keys(BLOCK_SZ);
-    parlay::sequence<V> tmp_values(BLOCK_SZ);
-
-    for (auto np : partition_sizes) {
-        expect(np);
-        tmp_keys.resize(np), tmp_values.resize(np);
-        q_keys.pop_front(tmp_keys.data(), np);
-        q_values.pop_front(tmp_values.data(), np);
-
-        auto tuples = parlay::delayed_tabulate(np, [&](size_t i){
-            return std::make_pair(tmp_keys[i], i);
-        });
-        auto hash = [](const u4 &x) { return SHARD(x); };
-        auto equal = [](const u4& a, const u4& b) { return SHARD(a) == SHARD(b); };
-        auto grouped = parlay::group_by_key(tuples, hash, equal);
-
-        parlay::for_each(parlay::iota(grouped.size()), [&](size_t i){
-            auto shard_id = (SHARD(grouped[i].first));
-            put_in_shard(shards[shard_id], tmp_keys, tmp_values, grouped[i].second);
+    auto d_keys_in = (K *) buf;
+    for (auto np: partition_sizes) {
+        q_keys.pop_front(d_keys_in, np);
+        auto key_slice = parlay::slice(d_keys_in, d_keys_in + np);
+        auto histogram = parlay::histogram_by_key(key_slice);
+        parlay::sort_inplace(histogram);
+        parlay::for_each(parlay::iota(histogram.size()), [&](size_t i) {
+            auto key = histogram[i].first;
+            value_offsets[key] = histogram[i].second;
         });
     }
-    return calc_max_occ(shards);
+
+    free(buf);
+    MEMPOOL_SHRINK(K);
+    MEMPOOL_SHRINK(V);
+    PRINT_MEM_USAGE(K);
+    PRINT_MEM_USAGE(V);
+    auto occ99 = calc_max_occ(value_offsets);
+
+    parlay::scan_inplace(value_offsets);
+    PRINT_MEM_USAGE(K);
+    PRINT_MEM_USAGE(V);
+    return occ99;
 }
 
 static void dump_headers(FILE *fp, std::vector<std::string> &headers) {
@@ -379,81 +317,29 @@ static void load_headers(FILE *fp, std::vector<std::string> &headers) {
     log_info("Done.");
 }
 
-template <typename K, typename V>
-static void dump_hashmap(FILE *fp, shard_t<K,V> *shards) {
-    log_info("Collecting key-value pairs from shards..");
-    parlay::sequence<u4> n_unique_keys_per_shard(N_SHARDS);
-    parlay::for_each(parlay::iota(N_SHARDS), [&](size_t i){
-        n_unique_keys_per_shard[i] = shards[i].tuples.size();
-    });
-    u4 total_uniq_keys = parlay::reduce(n_unique_keys_per_shard);
-    parlay::sequence<K> keys(total_uniq_keys);
-    parlay::sequence<u8> vpartitions(total_uniq_keys);
-    auto [offset, total] = parlay::scan(n_unique_keys_per_shard);
-    expect(total == total_uniq_keys);
-    offset.push_back(total_uniq_keys);
+template <typename V>
+static void dump_coordinates(FILE *fp, parlay::sequence<u8> &offsets, cqueue_t<V> &values) {
+    size_t n_keys = offsets.size(), n_values = values.size();
+    log_info("Dumping counts..");
+    fwrite(&n_keys, sizeof(n_keys), 1, fp);
+    fwrite(offsets.data(), sizeof(u8), offsets.size(), fp);
 
-    parlay::for_each(parlay::iota(N_SHARDS), [&](size_t i){
-        auto my_off = offset[i];
-        int j = 0;
-        for (auto &[key, vpartition]: shards[i].tuples) {
-            keys[my_off + j] = key;
-            vpartitions[my_off + j] = vpartition;
-            j++;
-        }
-        expect(j == offset[i+1] - offset[i]);
-    });
-
-    log_info("Dumping keys..");
-    expect(offset.size() == N_SHARDS + 1);
-    fwrite(&total_uniq_keys, sizeof(total_uniq_keys), 1, fp);
-    fwrite(offset.data(), sizeof(offset[0]), offset.size(), fp);
-    fwrite(keys.data(), sizeof(keys[0]), keys.size(), fp);
-    fwrite(vpartitions.data(), sizeof(vpartitions[0]), vpartitions.size(), fp);
-    log_info("Done");
-}
-
-template <typename K, typename V>
-static void load_hashmap(FILE *fp, shard_t<K,V> *shards) {
-    log_info("Loading keys..");
-    u4 total_uniq_keys;
-    parlay::sequence<u4> offset(N_SHARDS+1);
-    expect(fread(&total_uniq_keys, sizeof(total_uniq_keys), 1, fp) == 1);
-    expect(fread(offset.data(), sizeof(offset[0]), offset.size(), fp) == offset.size());
-
-    parlay::sequence<K> keys(total_uniq_keys);
-    parlay::sequence<u8> vpartitions(total_uniq_keys);
-    expect(fread(keys.data(), sizeof(keys[0]), keys.size(), fp) == keys.size());
-    expect(fread(vpartitions.data(), sizeof(vpartitions[0]), vpartitions.size(), fp) == vpartitions.size());
-
-    log_info("Adding keys into hash table");
-    parlay::for_each(parlay::iota(N_SHARDS), [&](size_t i){
-        auto my_off = offset[i], count = offset[i+1] - offset[i];
-        for (int j = 0; j < count; ++j)
-            shards[i].tuples[keys[my_off + j]] = vpartitions[my_off + j];
-    });
-    log_info("Done");
-}
-
-template <typename K, typename V>
-static void dump_values(FILE *fp, shard_t<K,V> *shards) {
     log_info("Dumping values..");
-    for (u4 i = 0; i < N_SHARDS; ++i) {
-        u4 n_values = shards[i].values.size();
-        fwrite(&n_values, sizeof(n_values), 1, fp);
-        fwrite(shards[i].values.data(), sizeof(shards[i].values[0]), shards[i].values.size(), fp);
-    }
+    values.dump(fp);
+
     log_info("Done.");
 }
 
-template <typename K, typename V>
-static void load_values(FILE *fp, shard_t<K,V> *shards) {
+template <typename V>
+static void load_coordinates(FILE *fp, parlay::sequence<u8> &offsets, cqueue_t<V> &values) {
+    size_t n_keys, n_values;
+    log_info("Loading counts..");
+    expect(fread(&n_keys, sizeof(n_keys), 1, fp) == 1);
+    offsets.resize(n_keys);
+    expect(fread(offsets.data(), sizeof(u8), offsets.size(), fp) == offsets.size());
+
     log_info("Loading values..");
-    for (u4 i = 0; i < N_SHARDS; ++i) {
-        u4 n_values = shards[i].values.size();
-        expect(fread(&n_values, sizeof(n_values), 1, fp) == 1);
-        shards[i].values.resize(n_values);
-        expect(fread(shards[i].values.data(), sizeof(shards[i].values[0]), shards[i].values.size(), fp) == shards[i].values.size());
-    }
-    log_info("done.");
+    values.load(fp);
+
+    log_info("Done.");
 }

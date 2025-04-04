@@ -67,6 +67,11 @@ static char *time_str(){
             time_str(), ##__VA_ARGS__, __FILE__, __LINE__);     \
 } while(0)
 
+#define prompt(fmt, ...) ({ \
+    fprintf(stderr, "" GRN "" fmt RESET ". Hit enter to continue..", ##__VA_ARGS__); \
+    while( getchar() != '\n' ); \
+})
+
 #define alignup(n, a) (((n) + (a)-1) & ~((a)-1))
 
 #ifdef NDEBUG
