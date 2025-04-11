@@ -57,6 +57,8 @@ struct config_t : public argparse::Args {
     int &bandwidth = kwarg("bw", "Width of the band in which kmers contained will be considered collinear").set_default(15);
     int &jc_frag_len = kwarg("jc-frag-len", "If --jaccard is set, the sequence are indexed and queried in overlapping fragments of this length.").set_default(180);
     int &jc_frag_ovlp_len = kwarg("jc-frag-ovlp-len", "If --jaccard is set, the sequence are indexed and queried in fragments which overlap this much.").set_default(120);
+    bool &dynamic = flag("dynamic", "use a dynamic multi-map");
+    int &n_shard_bits = kwarg("num-shard-bits", "log2(x), where x is the number of shards").set_default(10);
     std::string &poremodel = kwarg("poremodel", "Pore-model file path (currently unused)").set_default("");
 
     bool raw = false;

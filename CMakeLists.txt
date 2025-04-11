@@ -15,6 +15,7 @@ include_directories(external/kseqpp/include)
 include_directories(external/emhash)
 include_directories(external/argparse/include)
 include_directories(external/libvbyte)
+include_directories(external/tiered-vector/include)
 
 add_subdirectory(external/kseqpp)
 add_subdirectory(external/pybind11)
@@ -32,8 +33,6 @@ pybind11_add_module(_core
         src/index_refs.cpp
         src/query.cpp
         src/pybindings.cpp
-        external/libvbyte/varintdecode.c
-        external/libvbyte/vbyte.cc
 )
 
 add_executable(Collinearity src/main.cpp
@@ -50,8 +49,6 @@ add_executable(Collinearity src/main.cpp
         src/utils.h
         src/index.cpp
         src/mempool.h
-        external/libvbyte/varintdecode.c
-        external/libvbyte/vbyte.cc
 )
 #add_executable(test
 #        scratch/testmain.cpp
@@ -59,11 +56,13 @@ add_executable(Collinearity src/main.cpp
 #)
 
 #target_compile_options(collinear PRIVATE -fpermissive -mavx)
+add_compile_definitions(ARRAY LEVEL PACK)
 target_compile_options(Collinearity PRIVATE -fpermissive -mavx)
 target_link_libraries(Collinearity slow5 z)
 
 #target_compile_options(test PRIVATE -fpermissive)
 #target_link_libraries(test z)
 
+target_compile_options(_core PRIVATE -fpermissive -mavx)
 target_link_libraries(_core PUBLIC -mavx slow5 z pybind11::headers)
 install(TARGETS _core DESTINATION pycollinearity)

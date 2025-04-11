@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "pycollinearity"
-version = "1.0.0.dev12"
+version = "1.0.0.dev15"
 description="Fast alignment of sequences to references"
 readme = "README.md"
 authors = [

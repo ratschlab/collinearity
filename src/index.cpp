@@ -3,7 +3,6 @@
 //
 #include "collinearity.h"
 #include "index.h"
-#include "vbyte.h"
 
 
 // I am assuming that the number of sequences won't exceed 2^20 (1M)
@@ -342,4 +341,122 @@ static void load_coordinates(FILE *fp, parlay::sequence<u8> &offsets, cqueue_t<V
     values.load(fp);
 
     log_info("Done.");
+}
+
+void dindex_t::add(string &name, parlay::slice<char *, char *> seq) {
+    auto kmers = create_kmers(seq, k, sigma, encode_dna);
+    keys.append(kmers.begin(), kmers.end());
+
+    const auto& [id, offset] = headers.get_id_offset(name);
+
+    auto addresses = parlay::tabulate(kmers.size(), [&](size_t i) {
+        return make_key_from(id, i + offset);
+    });
+
+    values.append(addresses.begin(), addresses.end());
+}
+
+void dindex_t::merge() {
+    const u4 n = keys.size();
+
+    auto tuples = parlay::delayed_tabulate(n, [&](size_t i){
+        return std::make_pair(keys[i], i);
+    });
+    const int nsb = n_shard_bits;
+    auto hash = [nsb](const u4 &x) { return SHARD(x, nsb); };
+    auto equal = [nsb](const u4& a, const u4& b) { return SHARD(a, nsb) == SHARD(b, nsb); };
+    auto grouped = parlay::group_by_key(tuples, hash, equal);
+
+    parlay::for_each(parlay::iota(grouped.size()), [&](size_t i){
+        auto shard_id = (SHARD(grouped[i].first, nsb));
+        put_in_shard(shards[shard_id], keys, values, grouped[i].second);
+    });
+    keys.clear();
+    values.clear();
+}
+
+std::tuple<const char *, u4, float> dindex_t::search(parlay::slice<char *, char *> seq) {
+    const auto i = parlay::worker_id();
+    auto &hh = hhs[i];
+    hh.reset();
+    parlay::sequence<u4> keys = create_kmers_1t(seq, k, sigma, encode_dna);
+    for (u4 j = 0; j < keys.size(); ++j) {
+        const auto &[vbegin, vend] = get(keys[j]);
+        for (auto v = vbegin; v != vend; ++v) {
+            u8 ref_id = get_id_from(*v);
+            u8 ref_pos = get_pos_from(*v);
+            u8 intercept = (ref_pos > j) ? (ref_pos - j) : 0;
+            intercept /= bandwidth;
+            u8 key = make_key_from(ref_id, intercept);
+            hh.insert(key);
+            if (intercept >= bandwidth) {
+                intercept -= bandwidth;
+                key = make_key_from(ref_id, intercept);
+                hh.insert(key);
+            }
+        }
+    }
+    if (hh.top_key != -1) {
+        float presence = (hh.top_count * 1.0) / keys.size();
+        if (presence < presence_fraction) return {"*", 0, 0.0f};
+        auto id = get_id_from(hh.top_key);
+        auto &header = headers.get_name(id);
+        return std::make_tuple(header.c_str(), get_pos_from(hh.top_key) * bandwidth, presence);
+    } else return {"*", 0, 0.0f};
+}
+
+void dindex_t::put_in_shard(shard_t &shard,  parlay::sequence<u4> &all_new_keys, parlay::sequence<u8> &all_new_values,
+                            parlay::sequence<u8> &my_indices) {
+    u4 p = my_indices.size();
+    parlay::sequence<u4> my_keys(p);
+    parlay::sequence<u8> my_values(p);
+    for (u4 i = 0, off = 0; i < p; ++i) {
+        my_keys[off] = SKEY(all_new_keys[my_indices[i]], n_shard_bits);
+        my_values[off++] = all_new_values[my_indices[i]];
+    }
+    simple_sort_by_key(my_keys, my_values);
+
+    // compute delta array
+    parlay::sequence<u4> delta(n_keys_per_shard+1, 0);
+    for (const auto& key : my_keys) {
+        delta[key]++;
+    }
+
+    parlay::sequence<u8> new_offsets(n_keys_per_shard+1);
+    std::exclusive_scan(delta.begin(), delta.end(), new_offsets.begin(), 0);
+
+    auto &values = shard.values;
+    for (u4 i=0; i < p; ++i) {
+        u4 off = new_offsets[my_keys[i]];
+        values.insert(off, my_values[i]);
+    }
+
+    // update offsets
+    auto &old_offsets = shard.offsets;
+    std::copy(new_offsets.begin(), new_offsets.end(), old_offsets.begin());
+}
+
+pair<dindex_t::iterator_t, dindex_t::iterator_t> dindex_t::get(u4 key) {
+    u4 shard_id = SHARD(key, n_shard_bits);
+    auto &shard = shards[shard_id];
+    auto begin = shard.offsets[SKEY(key, n_shard_bits)], end = shard.offsets[SKEY(key, n_shard_bits) + 1];
+    return {dindex_t::iterator_t(shard.values, begin), dindex_t::iterator_t(shard.values, end)};
+
+}
+
+std::tuple<const char *, bool, u4, float> dindex_t::search(string &seq) {
+    if (seq.length() > 2 * k) {
+        const auto [header1, pos1, support1] =
+                search(parlay::make_slice(seq.data(), seq.data() + seq.size()));
+        auto slice = parlay::make_slice(seq.rbegin(), seq.rend());
+        auto rc = parlay::map(slice, [](char c) {
+            return "TGAC"[(c >> 1) & 3];
+        });
+        const auto [header2, pos2, support2] =
+                search(parlay::make_slice(rc.begin(), rc.end()));
+        if (support1 >= support2)
+            return std::make_tuple(header1, true, pos1, support1);
+        else
+            return std::make_tuple(header2, false, pos2, support2);
+    } else return {"*", true, 0, 0.0f};
 }

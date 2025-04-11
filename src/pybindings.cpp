@@ -10,24 +10,6 @@
 
 namespace py = pybind11;
 
-//static std::vector<const char*> kwargs_to_argv(const py::kwargs& kwargs, std::vector<std::string> &args) {
-//    std::vector<const char*> argv;
-//
-//    // First argument is usually the program name, conventionally
-//    args.emplace_back("program_name");
-//    argv.push_back(args.back().c_str());
-//
-//    // Convert kwargs into "--key=value" format
-//    for (auto& item : kwargs) {
-//        std::string key = item.first.cast<std::string>();
-//        std::string value = py::str(item.second);  // Convert value to string
-//        args.emplace_back("--" + key + "=" + value);
-//        argv.push_back(args.back().c_str());  // Store pointer to the new string
-//    }
-//
-//    return argv;
-//}
-
 static std::vector<const char*> kwargs_to_argv(const py::args& args, const py::kwargs& kwargs,
                                                std::vector<std::string>& arg_strings)  // Store actual argument strings
 {
@@ -65,8 +47,8 @@ static std::vector<const char*> kwargs_to_argv(const py::args& args, const py::k
 
 struct Alignment {
     std::string ctg;
-    int r_st, r_en, strand;
-    float pres_frac;
+    int r_st = 0, r_en = 0, strand = 1;
+    float pres_frac = 0.0f;
 
     Alignment() = default;
 
@@ -79,6 +61,10 @@ struct Index {
         auto argv = kwargs_to_argv(args, kwargs, argvec);
         auto config = argparse::parse<config_t>(argv.size(), argv.data());
 //        config.print();
+        if (config._sort_block_size.empty()) config.sort_block_size = MEMPOOL_BLOCKSZ;
+        else config.sort_block_size = hmsize2bytes(config._sort_block_size);
+        config.sort_block_size = (config.sort_block_size < MEMPOOL_BLOCKSZ)? MEMPOOL_BLOCKSZ : config.sort_block_size;
+
         if (config.jaccard) log_info("Creating Jaccard index");
         else log_info("Creating a normal index");
         if (config.fwd_rev) log_info("Indexing both fwd and rev references");
@@ -127,10 +113,52 @@ struct Index {
         return results;
     }
 
-
-
 private:
     index_t *idx = nullptr;
+    std::vector<std::string> argvec;
+};
+
+struct DynIndex {
+    DynIndex(const py::args& args, const py::kwargs& kwargs) {
+        auto argv = kwargs_to_argv(args, kwargs, argvec);
+        auto config = argparse::parse<config_t>(argv.size(), argv.data());
+        idx = new dindex_t(config);
+    }
+
+    void add(std::string &name, std::string &seq) {
+        idx->add(name, parlay::make_slice(seq.data(), seq.data() + seq.size()));
+    }
+
+    void add_batch(const py::list& names, const py::list& sequences) { // maybe I'll find a better way later
+        auto nr = sequences.size();
+        for (int i = 0; i < nr; ++i) {
+            auto name = names[i].cast<std::string>();
+            auto seq = sequences[i].cast<std::string>();
+            idx->add(name, parlay::make_slice(seq.data(), seq.data() + seq.size()));
+        }
+    }
+
+    void merge() { idx->merge(); }
+
+    Alignment query(std::string &sequence) {
+        auto result = idx->search(sequence);
+        return {
+                std::get<0>(result), std::get<1>(result),
+                static_cast<int>(std::get<2>(result)), std::get<3>(result), static_cast<int>(sequence.size())};
+    }
+
+    std::vector<Alignment> query_batch(const py::list& sequences) {
+        auto nr = sequences.size();
+        std::vector<Alignment> results(nr);
+        parlay::for_each(parlay::iota(nr), [&](size_t i){
+            auto sequence = sequences[i].cast<std::string>();
+            results[i] = query(sequence);
+        });
+        return results;
+    }
+
+private:
+    dindex_t *idx = nullptr;
     std::vector<std::string> argvec;
 };
 
@@ -152,4 +180,12 @@ PYBIND11_MODULE(_core, m) {
             .def("dump", &Index::dump)
             .def("query", &Index::query)
             .def("query_batch", &Index::query_batch);
+
+    py::class_<DynIndex>(m, "DynIndex")
+            .def(py::init<const py::args&, const py::kwargs&>())
+            .def("add", &DynIndex::add)
+            .def("add_batch", &DynIndex::add_batch)
+            .def("merge", &DynIndex::merge)
+            .def("query", &DynIndex::query)
+            .def("query_batch", &DynIndex::query_batch);
 }

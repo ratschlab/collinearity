@@ -12,6 +12,7 @@
 #include "hash_table8.hpp"
 #include "utils.h"
 #include "config.h"
+#include "templated_tiered.h"
 
 #ifdef NDEBUG
 #define SANITY_CHECKS 0
@@ -191,5 +192,106 @@ public:
     void load(const std::string& filename) override;
 };
 
+#define N_SHARDS(n_shard_bits)                  (1<<n_shard_bits)
+#define N_KEYS_PER_SHARD(n_keys, n_shard_bits)  ((n_keys) >> (n_shard_bits))
+#define SHARD(x, n_shard_bits)                  ((x) & (N_SHARDS(n_shard_bits)-1))
+#define SKEY(x, n_shard_bits)                   ((x) >> n_shard_bits)
+
+using namespace Seq;
+typedef Tiered<u8, LayerItr<LayerEnd,Layer<512,Layer<512,Layer<512>>>>> tvec_t;
+
+class dindex_t {
+    const int k, sigma, bandwidth, n_shard_bits, n_keys, n_shards, n_keys_per_shard;
+    float presence_fraction;
+    parlay::sequence<u4> keys;
+    parlay::sequence<u8> values;
+    heavyhitter_ht_t<u8> *hhs = nullptr;
+    struct headers_t {
+        std::vector<std::string> names;
+        emhash8::HashMap<std::string, u8> name_map; /// header, id, length
+        inline std::pair<u4, u4> get_id_offset(std::string &name) {
+            if (name_map.contains(name)) {
+                u8 val = name_map[name];
+                u4 id = HIGH32(val), offset = LOW32(val);
+                return {id, offset};
+            } else {
+                u4 id = names.size();
+                name_map[name] = MAKE64(id, 0);
+                names.push_back(name);
+                return {id, 0};
+            }
+        }
+        inline std::string& get_name(u4 id) { return names[id]; }
+    };
+    headers_t headers;
+    struct shard_t {
+        tvec_t values;
+        std::vector<u8> offsets;
+        explicit shard_t(size_t n_keys) {
+            offsets.resize(n_keys);
+            p_fill(offsets.data(), offsets.size(), 0ul);
+        }
+    };
+    class iterator_t {
+    private:
+        tvec_t &v;
+        size_t i;
+    public:
+        using value_type = u8;
+        using difference_type = size_t;
+        using pointer = u8*;
+        using reference = u8&;
+        using iterator_category = std::forward_iterator_tag;
+
+        // Constructor
+        explicit iterator_t(tvec_t &v, size_t i=0) : v(v), i(i) {}
+
+        // Dereference operator
+        u8 operator*() { return v[i]; }
+
+        // Arrow operator
+        const u8* operator->() { return &(v[i]); }
+
+        // Prefix increment
+        iterator_t& operator++() {
+            ++i;
+            return *this;
+        }
+
+        // Postfix increment
+        iterator_t operator++(int) {
+            iterator_t temp = *this;
+            ++(*this);
+            return temp;
+        }
+
+        // Comparison operators
+        bool operator==(const iterator_t& other) const { return i == other.i; }
+        bool operator!=(const iterator_t& other) const { return i != other.i; }
+        bool operator<(const iterator_t& other) const { return i < other.i; }
+        bool operator<=(const iterator_t& other) const { return i <= other.i; }
+        bool operator>(const iterator_t& other) const { return i > other.i; }
+        bool operator>=(const iterator_t& other) const { return i >= other.i; }
+    };
+    std::vector<shard_t> shards;
+    void put_in_shard(shard_t &shard, parlay::sequence<u4> &keys, parlay::sequence<u8> &values, parlay::sequence<u8> &indices);
+    std::pair<iterator_t,iterator_t> get(u4 key);
+
+public:
+
+    explicit dindex_t(config_t &config): k(config.k), sigma(config.sigma),
+                                         presence_fraction(config.presence_fraction), bandwidth(config.bandwidth),
+                                         n_keys(1<<(config.k<<1)), n_shard_bits(config.n_shard_bits),
+                                         n_shards(N_SHARDS(n_shard_bits)), n_keys_per_shard(N_KEYS_PER_SHARD(n_keys, n_shard_bits)) {
+        for (int i = 0; i < n_shards; ++i)
+            shards.emplace_back(n_keys_per_shard+1);
+        hhs = new heavyhitter_ht_t<u8>[parlay::num_workers()];
+    }
+
+    void add(std::string &name, parlay::slice<char*, char*> seq);
+    std::tuple<const char*, u4, float> search(parlay::slice<char*, char*> seq);
+    void merge();
+    std::tuple<const char*, bool, u4, float> search(std::string &seq);
+};
 
 #endif //COLLINEARITY_INDEX_H

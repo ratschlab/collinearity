@@ -7,6 +7,10 @@
 
 #include "prelude.h"
 
+#define LOW32(x) ((x) & 0xffffffff)
+#define HIGH32(x) (((x)>>32) & 0xffffffff)
+#define MAKE64(hi, lo) ((((u8)(hi))<<32) | (lo))
+
 static auto encode_dna = [](char x) { return (u4)(((x) >> 1) & 3); };
 static auto encode_qsig = [](u1 x) { return x; };
 
