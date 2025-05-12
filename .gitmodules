@@ -23,10 +23,3 @@
 [submodule "external/argparse"]
 	path = external/argparse
 	url = https://github.com/morrisfranken/argparse.git
-[submodule "external/hopscotch-map"]
-	path = external/hopscotch-map
-	url = https://github.com/Tessil/hopscotch-map.git
-[submodule "external/nanobind"]
-        path = external/nanobind
-        url = https://github.com/wjakob/nanobind.git
-
