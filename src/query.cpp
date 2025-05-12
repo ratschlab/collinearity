@@ -48,7 +48,7 @@ void query_fasta(index_t *idx, std::string &fasta_filename, int batch_sz, std::s
                 return idx->search(sequences[i]);
             });
             for (u4 i = 0; i < nr; ++i)
-                fprintf(fp, "%s\t%s\t%c\t%d\t%f\n", headers[i].c_str(), std::get<0>(results[i]),
+                fprintf(fp, "%s\t%zu\t%s\t%c\t%d\t%f\n", headers[i].c_str(), sequences[i].length(), std::get<0>(results[i]),
                        STRAND[(int)std::get<1>(results[i])], std::get<2>(results[i]), std::get<3>(results[i]));
             total_nr += nr;
             sitrep("%lu", total_nr);
@@ -62,7 +62,7 @@ void query_fasta(index_t *idx, std::string &fasta_filename, int batch_sz, std::s
             return idx->search(sequences[i]);
         });
         for (u4 i = 0; i < nr; ++i)
-            fprintf(fp, "%s\t%s\t%c\t%d\t%f\n", headers[i].c_str(), std::get<0>(results[i]),
+            fprintf(fp, "%s\t%zu\t%s\t%c\t%d\t%f\n", headers[i].c_str(), sequences[i].length(), std::get<0>(results[i]),
                    STRAND[(int)std::get<1>(results[i])], std::get<2>(results[i]), std::get<3>(results[i]));
         total_nr += nr;
         sitrep("%lu", total_nr);

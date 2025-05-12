@@ -8,11 +8,21 @@
 #include "parlay/sequence.h"
 #include "../src/utils.h"
 #include "../src/index.h"
+#include "../src/config.h"
 
 using namespace std;
 
+struct rf_config_t : config_t {
+    int &n_threads = kwarg("num-threads", "number of threads").set_default(1);
+    static rf_config_t init(int argc, char *argv[]) {
+        auto c = argparse::parse<rf_config_t>(argc, argv);
+        c.print();
+        return c;
+    }
+};
+
 int main(int argc, char *argv[]) {
-    fa3();
+    auto config = rf_config_t::init(argc, argv);
 }
 
 f(a0) {
@@ -50,9 +60,4 @@ f(a2) {
     cout << slice[0] << "\n";
     cout << *slice.begin() << "\n";
 
-}
-
-
-void foo(index_t *idx) {
-    idx->init_query_buffers();
 }

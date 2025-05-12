@@ -50,6 +50,9 @@ add_executable(Collinearity src/main.cpp
         src/index.cpp
         src/mempool.h
 )
+
+
+#message(STATUS "Building tests..")
 #add_executable(test
 #        scratch/testmain.cpp
 #        scratch/tests.h

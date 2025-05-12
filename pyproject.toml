@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "pycollinearity"
-version = "1.0.0.dev15"
+version = "1.0.0.dev44"
 description="Fast alignment of sequences to references"
 readme = "README.md"
 authors = [
@@ -28,7 +28,6 @@ classifiers = [
 #minimum-version = "0.4"
 #wheel.packages = ["src"]  # Ensure the built module is placed in the correct package
 #
-#[tool.scikit-build.cmake]
-#minimum-version = "3.22"
-#build-type = "Release"
+[tool.scikit-build.cmake]
+build-type = "Debug"
 #targets = ["_core"]
