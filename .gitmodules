@@ -23,3 +23,6 @@
 [submodule "external/argparse"]
 	path = external/argparse
 	url = https://github.com/morrisfranken/argparse.git
+[submodule "external/sdsl-lite"]
+	path = external/sdsl-lite
+	url = https://github.com/vgteam/sdsl-lite.git
