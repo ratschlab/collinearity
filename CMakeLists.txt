@@ -16,10 +16,14 @@ include_directories(external/emhash)
 include_directories(external/argparse/include)
 include_directories(external/libvbyte)
 include_directories(external/tiered-vector/include)
+include_directories(external/sdsl-lite/include)
 
 add_subdirectory(external/kseqpp)
 add_subdirectory(external/pybind11)
 add_subdirectory(external/slow5lib)
+#add_subdirectory(external/sdsl-lite)
+
+#link_directories(external/sdsl-lite/lib)
 
 #set(Python3_EXECUTABLE /home/sayan/.virtualenvs/pycollinearity/bin/python3)
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
@@ -52,19 +56,20 @@ add_executable(Collinearity src/main.cpp
 )
 
 
-#message(STATUS "Building tests..")
-#add_executable(test
-#        scratch/testmain.cpp
-#        scratch/tests.h
-#)
+message(STATUS "Building tests..")
+add_executable(test
+        scratch/testmain.cpp
+        src/index.cpp
+        scratch/tests.h
+)
 
 #target_compile_options(collinear PRIVATE -fpermissive -mavx)
 add_compile_definitions(ARRAY LEVEL PACK)
 target_compile_options(Collinearity PRIVATE -fpermissive -mavx)
 target_link_libraries(Collinearity slow5 z)
 
-#target_compile_options(test PRIVATE -fpermissive)
-#target_link_libraries(test z)
+target_compile_options(test PRIVATE -fpermissive -mavx)
+target_link_libraries(test z)
 
 target_compile_options(_core PRIVATE -fpermissive -mavx)
 target_link_libraries(_core PUBLIC -mavx slow5 z pybind11::headers)

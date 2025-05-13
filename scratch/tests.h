@@ -8,12 +8,10 @@
 #include "../src/prelude.h"
 #include "../src/parlay_utils.h"
 
-#undef verify
-
-#define pass(fmt, ...) fprintf(stderr, "" GRN "[PASS]: " fmt RESET "\n", ##__VA_ARGS__)
-#define fail(fmt, ...) fprintf(stderr, "" RED "[FAIL]: " fmt RESET "\n", ##__VA_ARGS__)
-#define check(expression, description) ((expression)? pass(description) : fail(description))
-#define verify(expression) (expression)? pass("" #expression "") : fail(""  #expression  "")
+#define _pass(fmt, ...) fprintf(stderr, "" GRN "[PASS]: " fmt RESET "\n", ##__VA_ARGS__)
+#define _fail(fmt, ...) fprintf(stderr, "" RED "[FAIL]: " fmt RESET "\n", ##__VA_ARGS__)
+#define _check(expression, description) ((expression)? _pass(description) : _fail(description))
+#define _verify(expression) (expression)? _pass("" #expression "") : _fail(""  #expression  "")
 
 #define PRINT_VECTOR(v, fmt) ({ \
     for (const auto&x : v) printf(fmt, x); \
@@ -36,11 +34,12 @@ static parlay::sequence<T> generate_random(size_t max, size_t count, int seed=0)
     return result;
 }
 
-#define f(x) void f##x()
+#define fn(x) void fn##x()
 
-f(a0);
-f(a1);
-f(a2);
-f(a3);
+fn(a0);
+fn(a1);
+fn(a2);
+fn(a3);
+fn(a4);
 
 #endif //COLLINEARITY_TESTS_H

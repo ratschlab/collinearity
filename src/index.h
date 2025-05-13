@@ -43,15 +43,15 @@ struct heavyhitter_ht_t {
  */
 class index_t {
 protected:
-    const u4 k, sigma, n_keys;
-    const bool fwd_rev;
-    const float presence_fraction;
-    const int bandwidth;
-    const u8 sort_blocksz;
-
     std::vector<std::string> headers;
     u4 max_occ = -1;
     parlay::sequence<u8> value_offsets;
+
+    const u4 k, sigma, n_keys;
+    const u4 bandwidth;
+    const bool fwd_rev;
+    const float presence_fraction;
+    const u8 sort_blocksz;
 
     index_t();
 
@@ -137,15 +137,15 @@ public:
 
     /**
      * Dump index into file
-     * @param filename name (path) of dump file
+     * @param fp file handle which allows writing
      */
-    virtual void dump(const std::string& filename) = 0;
+    virtual void dump(FILE *fp) = 0;
 
     /**
      * Load index from file
-     * @param filename name (path) of dump file
+     * @param fp file handle that allows reading
      */
-    virtual void load(const std::string& filename) = 0;
+    virtual void load(FILE *fp) = 0;
 
 };
 
@@ -169,8 +169,8 @@ public:
     std::tuple<const char*, u4, float> search(parlay::slice<char*, char*> seq) override;
     void init_query_buffers() override;
     void build() override;
-    void dump(const std::string& filename) override;
-    void load(const std::string& filename) override;
+    void dump(FILE *fp) override;
+    void load(FILE *fp) override;
 };
 
 class c_index_t : public index_t {
@@ -188,8 +188,8 @@ public:
     std::tuple<const char*, u4, float> search(parlay::slice<char*, char*> seq) override;
     void init_query_buffers() override;
     void build() override;
-    void dump(const std::string& filename) override;
-    void load(const std::string& filename) override;
+    void dump(FILE *fp) override;
+    void load(FILE *fp) override;
 };
 
 #define N_SHARDS(n_shard_bits)                  (1<<n_shard_bits)
@@ -293,5 +293,26 @@ public:
     void merge();
     std::tuple<const char*, bool, u4, float> search(std::string &seq);
 };
+
+static void dump_index(std::string filename, config_t &config, index_t *idx) {
+    FILE *fp = fopen(filename.c_str(), "w");
+    if (!fp) log_error("Cannot open file %s because %s.", filename.c_str(), strerror(errno));
+    config.dump(fp);
+    idx->dump(fp);
+    fclose(fp);
+}
+
+static index_t * load_index(std::string filename) {
+    index_t *idx;
+    FILE *fp = fopen(filename.c_str(), "r");
+    if (!fp) log_error("Cannot open file %s because %s.", filename.c_str(), strerror(errno));
+    config_t config;
+    config.load(fp);
+    if (config.jaccard) idx = new j_index_t(config);
+    else idx = new c_index_t(config);
+    idx->load(fp);
+    fclose(fp);
+    return idx;
+}
 
 #endif //COLLINEARITY_INDEX_H

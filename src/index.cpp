@@ -72,42 +72,6 @@ void j_index_t::build() {
     max_occ = consolidate(q_keys, q_values, value_offsets, sort_blocksz);
 }
 
-void j_index_t::dump(const std::string &filename) {
-    FILE *fp = fopen(filename.c_str(), "a");
-    expect(ftell(fp) == CONFIG_DUMP_SIZE);
-    if (!fp) log_error("Cannot open file %s because %s.", filename.c_str(), strerror(errno));
-    dump_headers(fp, headers);
-    dump_coordinates(fp, value_offsets, q_values);
-    fwrite(&max_occ, sizeof(max_occ), 1, fp);
-
-    log_info("Dumping fragment offsets..");
-    u4 buffer[3];
-    buffer[0] = frag_offsets.size(), buffer[1] = frag_len, buffer[2] = frag_ovlp_len;
-    fwrite(buffer, sizeof(u4), 3, fp);
-    fwrite(frag_offsets.data(), sizeof(u4), buffer[0], fp);
-    log_info("Done");
-    fclose(fp);
-}
-
-void j_index_t::load(const std::string &filename) {
-    FILE *fp = fopen(filename.c_str(), "r");
-    if (!fp) log_error("Could not open %s because %s", filename.c_str(), strerror(errno));
-    if (fseek(fp, CONFIG_DUMP_SIZE, SEEK_SET))
-        log_error("Could not fseek because %s.", strerror(errno));
-    load_headers(fp, headers);
-    load_coordinates(fp, value_offsets, q_values);
-    expect(fread(&max_occ, sizeof(max_occ), 1, fp) == 1);
-
-    log_info("Loading fragment offsets..");
-    u4 buffer[3];
-    expect(fread(buffer, sizeof(u4), 3, fp) == 3);
-    frag_offsets.resize(buffer[0]);
-    frag_len = buffer[1], frag_ovlp_len = buffer[2];
-    expect(fread(frag_offsets.data(), sizeof(u4), buffer[0], fp) == buffer[0]);
-    log_info("Done");
-    fclose(fp);
-}
-
 void c_index_t::init_query_buffers() {
     log_info("In c_index_t");
     hhs = new heavyhitter_ht_t<u8>[parlay::num_workers()];
@@ -162,25 +126,34 @@ std::tuple<const char *, u4, float> c_index_t::search(parlay::slice<char *, char
     } else return {"*", 0, 0.0f};
 }
 
-void c_index_t::dump(const std::string &filename) {
-    FILE *fp = fopen(filename.c_str(), "a");
-    expect(ftell(fp) == CONFIG_DUMP_SIZE);
-    if (!fp) log_error("Cannot open file %s because %s.", filename.c_str(), strerror(errno));
+void j_index_t::dump(FILE *fp) {
     dump_headers(fp, headers);
     dump_coordinates(fp, value_offsets, q_values);
-    fwrite(&max_occ, sizeof(max_occ), 1, fp);
-    fclose(fp);
+
+    size_t n_frag_offsets = frag_offsets.size();
+    dump_values(fp, max_occ, n_frag_offsets);
+    fwrite(frag_offsets.data(), sizeof(frag_offsets.front()), n_frag_offsets, fp);
 }
 
-void c_index_t::load(const std::string &filename) {
-    FILE *fp = fopen(filename.c_str(), "r");
-    if (!fp) log_error("Could not open %s because %s", filename.c_str(), strerror(errno));
-    if (fseek(fp, CONFIG_DUMP_SIZE, SEEK_SET))
-        log_error("Could not fseek because %s.", strerror(errno));
+void j_index_t::load(FILE *fp) {
     load_headers(fp, headers);
     load_coordinates(fp, value_offsets, q_values);
-    expect(fread(&max_occ, sizeof(max_occ), 1, fp) == 1);
-    fclose(fp);
+    size_t n_frag_offsets = 0;
+    load_values(fp, &max_occ, &n_frag_offsets);
+    frag_offsets.resize(n_frag_offsets);
+    expect(fread(frag_offsets.data(), sizeof(frag_offsets.front()), n_frag_offsets, fp) == n_frag_offsets);
+}
+
+void c_index_t::dump(FILE *fp) {
+    dump_headers(fp, headers);
+    dump_coordinates(fp, value_offsets, q_values);
+    dump_values(fp, max_occ);
+}
+
+void c_index_t::load(FILE *fp) {
+    load_headers(fp, headers);
+    load_coordinates(fp, value_offsets, q_values);
+    load_values(fp, &max_occ);
 }
 
 template <typename K, typename V>
@@ -289,7 +262,7 @@ static u4 consolidate(cqueue_t<K> &q_keys, cqueue_t<V> &q_values, parlay::sequen
 static void dump_headers(FILE *fp, std::vector<std::string> &headers) {
     size_t n = headers.size();
     log_info("Dumping %zd refnames..", n);
-    fwrite(&n, sizeof(n), 1, fp);
+    dump_values(fp, n);
     std::vector<u2> refnamelens(n);
     for (int i = 0; i < n; ++i) refnamelens[i] = headers[i].size();
     fwrite(refnamelens.data(), sizeof(u2), n, fp);
@@ -302,7 +275,7 @@ static void dump_headers(FILE *fp, std::vector<std::string> &headers) {
 
 static void load_headers(FILE *fp, std::vector<std::string> &headers) {
     size_t n;
-    expect(fread(&n, sizeof(n), 1, fp) == 1);
+    load_values(fp, &n);
     log_info("Loading %zd refnames..", n);
     std::vector<u2> refnamelens(n);
     expect(fread(refnamelens.data(), sizeof(u2), n, fp) == n);
@@ -310,7 +283,7 @@ static void load_headers(FILE *fp, std::vector<std::string> &headers) {
     char buffer[4096];
     for (int i = 0; i < n; ++i) {
         size_t l = refnamelens[i];
-        expect(fread(buffer, 1, l, fp) == 1);
+        expect(fread(buffer, 1, l, fp) == l);
         headers.emplace_back(buffer, l);
     }
     log_info("Done.");

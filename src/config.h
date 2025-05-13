@@ -37,6 +37,28 @@
     }
 }
 
+template <class T>
+static void dump_values(FILE *fp, T& var) {
+    fwrite(&var, sizeof(var), 1, fp);
+}
+
+template <class T, typename... Args>
+static void dump_values(FILE *fp, T& var, Args... args) {
+    expect(fwrite(&var, sizeof(var), 1, fp) == 1);
+    dump_values(fp, args...);
+}
+
+template <class T>
+static void load_values(FILE *fp, T *p_var) {
+    expect(fread(p_var, sizeof(*p_var), 1, fp) == 1);
+}
+
+template <class T, typename... Args>
+static void load_values(FILE *fp, T *p_var, Args... args) {
+    expect(fread(p_var, sizeof(*p_var), 1, fp) == 1);
+    load_values(fp, args...);
+}
+
 struct config_t : public argparse::Args {
     enum phase_t {index, query, both};
     phase_t phase;
@@ -102,29 +124,19 @@ struct config_t : public argparse::Args {
         return c;
     }
 
+    void dump(FILE *fp) {
+        dump_values(fp, k, jaccard, fwd_rev, presence_fraction, bandwidth, jc_frag_len, jc_frag_ovlp_len, dynamic,
+                    n_shard_bits, raw, sigma, sort_block_size);
+    }
+
+    void load(FILE *fp) {
+        load_values(fp, &k, &jaccard, &fwd_rev, &presence_fraction, &bandwidth, &jc_frag_len, &jc_frag_ovlp_len, &dynamic,
+                    &n_shard_bits, &raw, &sigma, &sort_block_size);
+    }
+
 private:
     const char *phase_strs[3] = {"index", "query", "both"};
     const char *true_false[2] = {"false", "true"};
-
-    void dump(std::string &filename) const {
-        u1 buffer[CONFIG_DUMP_SIZE] = {0};
-        buffer[0] = ((int)raw) | ((int)fwd_rev << 1) | ((int)jaccard << 2);
-        buffer[1] = k, buffer[2] = sigma;
-        FILE *fp = fopen(filename.c_str(), "w");
-        if (!fp) log_error("Could not open file %s because %s.", filename.c_str(), strerror(errno));
-        expect(fwrite(buffer, sizeof(u1), CONFIG_DUMP_SIZE, fp) == CONFIG_DUMP_SIZE);
-        fclose(fp);
-    }
-
-    void load(std::string &filename) {
-        u1 buffer[CONFIG_DUMP_SIZE] = {0};
-        FILE *fp = fopen(filename.c_str(), "r");
-        if (!fp) log_error("Could not open file %s because %s.", filename.c_str(), strerror(errno));
-        expect(fread(buffer, sizeof(u1), CONFIG_DUMP_SIZE, fp) == CONFIG_DUMP_SIZE);
-        fclose(fp);
-        raw = buffer[0] & 0b1, fwd_rev = buffer[0] & 0b10, jaccard = buffer[0] & 0b100;
-        k = buffer[1], sigma = buffer[2];
-    }
 };
 
 #endif //COLLINEARITY_CONFIG_H
