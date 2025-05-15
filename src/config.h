@@ -8,8 +8,6 @@
 #include "prelude.h"
 #include "argparse/argparse.hpp"
 
-#define CONFIG_DUMP_SIZE 3
-
 [[maybe_unused]] static inline size_t hmsize2bytes(std::string& hsize) {
     char unit = hsize.back();
     if (unit >= 48 && unit <= 57)
@@ -73,6 +71,7 @@ struct config_t : public argparse::Args {
     std::string &out = kwarg("out", "Path to output file. Must be provided if --qry is provided.").set_default("");
     int &k = kwarg("k", "k-mer length").set_default(15);
     bool &jaccard = flag("jaccard", "Use jaccard similarity.");
+    bool &compressed = flag("compressed", "Use a compressed jaccard index.");
     bool &fwd_rev = flag("fr", "Index both forward and reverse strands of the reference.");
     float &presence_fraction = kwarg("pf", "Fraction of k-mers that must be present in an alignment.").set_default(0.1f);
     std::string &_sort_block_size = kwarg("sort-blksz", "Block size to use in sorting.").set_default("");

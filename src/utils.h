@@ -6,6 +6,7 @@
 #define COLLINEARITY_UTILS_H
 
 #include "prelude.h"
+#include <sys/resource.h>
 
 #define LOW32(x) ((x) & 0xffffffff)
 #define HIGH32(x) (((x)>>32) & 0xffffffff)
@@ -162,6 +163,27 @@ static void prettyPrintVector(const Sequence<T>& vec, size_t threshold = 20) {
     std::cout << "]" << std::endl;
 }
 
+static std::string format_size(size_t bytes) {
+    const char* units[] = {"B", "KB", "MB", "GB"};
+    int unit_index = 0;
+    double size = static_cast<double>(bytes);
+
+    while (size >= 1024 && unit_index < 3) {
+        size /= 1024;
+        unit_index++;
+    }
+
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(2) << size << " " << units[unit_index];
+    return oss.str();
+}
+
+static std::string get_memory_usage() {
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    // On Linux, ru_maxrss is in KB; on MacOS it's in bytes
+    return format_size(usage.ru_maxrss * 1024);
+}
 
 
 #endif //COLLINEARITY_UTILS_H

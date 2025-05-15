@@ -254,6 +254,7 @@ static u4 consolidate(cqueue_t<K> &q_keys, cqueue_t<V> &q_values, parlay::sequen
     auto occ99 = calc_max_occ(value_offsets);
 
     parlay::scan_inplace(value_offsets);
+    verify(parlay::is_sorted(value_offsets));
     PRINT_MEM_USAGE(K);
     PRINT_MEM_USAGE(V);
     return occ99;
@@ -432,4 +433,42 @@ std::tuple<const char *, bool, u4, float> dindex_t::search(string &seq) {
         else
             return std::make_tuple(header2, false, pos2, support2);
     } else return {"*", true, 0, 0.0f};
+}
+
+void cj_index_t::build() {
+    log_info("Memory usage before build: %s", get_memory_usage().c_str());
+    j_index_t::build();
+    log_info("Memory usage after build: %s", get_memory_usage().c_str());
+    log_info("Compressing offsets and values..");
+    c_val_offsets = ev_t(value_offsets);
+    log_info("Compressed value offsets from %s to %s",
+             format_size(value_offsets.size() * 8.0).c_str(), format_size(sdsl::size_in_bytes(c_val_offsets)).c_str());
+    value_offsets.clear();
+    parlay::sequence<u8> tmp;
+    value_offsets.swap(tmp);
+    c_values = ev_t(q_values);
+    log_info("Compressed values from %s to %s",
+             format_size(q_values.size() * 4.0).c_str(), format_size(sdsl::size_in_bytes(c_values)).c_str());
+    q_values.clear();
+    mempool_t<u4>::getInstance().shrink();
+    log_info("Memory usage after compression: %s", get_memory_usage().c_str());
+}
+
+std::tuple<const char *, u4, float> cj_index_t::search(parlay::slice<char *, char *> seq) {
+    const auto i = parlay::worker_id();
+    auto &hh = hhs[i];
+    hh.reset();
+    parlay::sequence<u4> keys = create_kmers_1t(seq, k, sigma, encode_dna);
+    for (auto key : keys) {
+        const auto start = c_val_offsets[key], end = c_val_offsets[key+1];
+        for (auto j = start; j < end; ++j) hh.insert(c_values[j]);
+    }
+    if (hh.top_key != -1) {
+        float presence = (hh.top_count * 1.0) / keys.size();
+        if (presence < presence_fraction) return {"*", 0, 0.0f};
+        auto lb = lower_bound(frag_offsets.data(), 0, frag_offsets.size(), hh.top_key);
+        auto &header = headers[lb - 1];
+        u4 pos = (hh.top_key - lb) * (frag_len - frag_ovlp_len);
+        return std::make_tuple(header.c_str(), pos, presence);
+    } else return {"*", 0, 0.0f};
 }

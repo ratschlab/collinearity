@@ -64,7 +64,9 @@ private:
     size_t _size = 0;
     std::deque<block_t> blocks;
 public:
-    inline size_t size() { return _size; }
+    typedef T value_type;
+    inline size_t size() const { return _size; }
+    inline bool empty() const { return _size == 0; }
     cqueue_t() = default;
     cqueue_t(const cqueue_t<T>&) = delete;
     cqueue_t<T>& operator = (const cqueue_t<T>&) = delete;
@@ -149,9 +151,9 @@ public:
         else log_error("Array index out of bounds.");
     }
 
-    class iterator_t {
+    class const_iterator {
     private:
-        cqueue_t<T> &q;
+        const cqueue_t<T> *q;
         size_t i;
     public:
         using value_type = T;
@@ -161,51 +163,51 @@ public:
         using iterator_category = std::forward_iterator_tag;
 
         // Constructor
-        explicit iterator_t(cqueue_t<T> &q) : q(q), i(0) {}
-        iterator_t(cqueue_t<T> &q, size_t i) : q(q), i(i) {}
+        explicit const_iterator(const cqueue_t<unsigned int> *q) : q(q), i(0) {}
+        const_iterator(const cqueue_t<T> *q, size_t i) : q(q), i(i) {}
 
         // Dereference operator
-        T operator*() { return q[i]; }
+        T operator*() { return (*q)[i]; }
 
         // Arrow operator
-        T* operator->() { return &(q[i]); }
+        T* operator->() { return &((*q)[i]); }
 
         // Prefix increment
-        iterator_t& operator++() {
+        const_iterator& operator++() {
             ++i;
             return *this;
         }
 
         // Postfix increment
-        iterator_t operator++(int) {
-            iterator_t temp = *this;
+        const_iterator operator++(int) {
+            const_iterator temp = *this;
             ++(*this);
             return temp;
         }
 
         // Difference between two iterators
-        difference_type operator-(const iterator_t& other) const {
+        difference_type operator-(const const_iterator& other) const {
             return i - other.i;
         }
 
         // Subscript operator
         T& operator[](difference_type n) const {
-            return *(q[i + n]);
+            return *((*q)[i + n]);
         }
 
         // Comparison operators
-        bool operator==(const iterator_t& other) const { return i == other.i; }
-        bool operator!=(const iterator_t& other) const { return i != other.i; }
-        bool operator<(const iterator_t& other) const { return i < other.i; }
-        bool operator<=(const iterator_t& other) const { return i <= other.i; }
-        bool operator>(const iterator_t& other) const { return i > other.i; }
-        bool operator>=(const iterator_t& other) const { return i >= other.i; }
+        bool operator==(const const_iterator& other) const { return i == other.i; }
+        bool operator!=(const const_iterator& other) const { return i != other.i; }
+        bool operator<(const const_iterator& other) const { return i < other.i; }
+        bool operator<=(const const_iterator& other) const { return i <= other.i; }
+        bool operator>(const const_iterator& other) const { return i > other.i; }
+        bool operator>=(const const_iterator& other) const { return i >= other.i; }
     };
 
     // Begin and End functions
-    iterator_t begin() { return iterator_t(*this); }
-    iterator_t end() { return iterator_t(*this, size()); }
-    iterator_t it(size_t i) { return iterator_t(*this, i); }
+    const_iterator begin() const { return const_iterator(this); }
+    const_iterator end() const { return const_iterator(this, size()); }
+    const_iterator it(size_t i) const { return const_iterator(this, i); }
 
     void dump(FILE *fp) {
         fwrite(&_size, sizeof(_size), 1, fp);

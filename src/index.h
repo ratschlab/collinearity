@@ -13,6 +13,7 @@
 #include "utils.h"
 #include "config.h"
 #include "templated_tiered.h"
+#include "sdsl/vectors.hpp"
 
 #ifdef NDEBUG
 #define SANITY_CHECKS 0
@@ -153,13 +154,14 @@ public:
  * index to detect jaccard similarity
  */
 class j_index_t : public index_t {
+protected:
     cqueue_t<u4> q_keys;
     cqueue_t<u4> q_values;
     heavyhitter_ht_t<u4> *hhs = nullptr;
     std::vector<u4> frag_offsets = {0};
     u4 frag_len, frag_ovlp_len;
 
-    inline std::pair<cqueue_t<u4>::iterator_t, cqueue_t<u4>::iterator_t> get(u4 key) {
+    inline std::pair<cqueue_t<u4>::const_iterator, cqueue_t<u4>::const_iterator> get(u4 key) {
         return { q_values.it(value_offsets[key]), q_values.it(value_offsets[key+1]) };
     }
 
@@ -173,12 +175,27 @@ public:
     void load(FILE *fp) override;
 };
 
+/**
+ * Compressed jaccard index
+ */
+typedef sdsl::vlc_vector<> ev_t;
+class cj_index_t : public j_index_t {
+protected:
+    ev_t c_val_offsets;
+    ev_t c_values;
+
+public:
+    explicit cj_index_t(config_t &config): j_index_t(config) {}
+    void build() override;
+    std::tuple<const char*, u4, float> search(parlay::slice<char*, char*> seq) override;
+};
+
 class c_index_t : public index_t {
     cqueue_t<u4> q_keys;
     cqueue_t<u8> q_values;
     heavyhitter_ht_t<u8> *hhs = nullptr;
 
-    inline std::pair<cqueue_t<u8>::iterator_t, cqueue_t<u8>::iterator_t> get(u4 key) {
+    inline std::pair<cqueue_t<u8>::const_iterator, cqueue_t<u8>::const_iterator> get(u4 key) {
         return { q_values.it(value_offsets[key]), q_values.it(value_offsets[key+1]) };
     }
 
