@@ -15,12 +15,12 @@
 #define get_id_from(key) ((key) >> ref_len_nbits)
 #define get_pos_from(key) ((key) & ref_id_bitmask)
 
-static void dump_headers(FILE *fp, std::vector<std::string> &headers);
-static void load_headers(FILE *fp, std::vector<std::string> &headers);
+static void dump_headers(std::ostream &fs, std::vector<std::string> &headers);
+static void load_headers(std::istream &fs, std::vector<std::string> &headers);
 template <typename V>
-static void dump_coordinates(FILE *fp, parlay::sequence<u8> &offsets, cqueue_t<V> &values);
+static void dump_coordinates(std::ostream &fs, parlay::sequence<u8> &offsets, cqueue_t<V> &values);
 template <typename V>
-static void load_coordinates(FILE *fp, parlay::sequence<u8> &offsets, cqueue_t<V> &values);
+static void load_coordinates(std::istream &fs, parlay::sequence<u8> &offsets, cqueue_t<V> &values);
 
 template <typename K, typename V>
 static u4 consolidate(cqueue_t<K> &q_keys, cqueue_t<V> &q_values, parlay::sequence<u8> &value_offsets, u4 block_sz);
@@ -126,34 +126,30 @@ std::tuple<const char *, u4, float> c_index_t::search(parlay::slice<char *, char
     } else return {"*", 0, 0.0f};
 }
 
-void j_index_t::dump(FILE *fp) {
-    dump_headers(fp, headers);
-    dump_coordinates(fp, value_offsets, q_values);
-
-    size_t n_frag_offsets = frag_offsets.size();
-    dump_values(fp, max_occ, n_frag_offsets);
-    fwrite(frag_offsets.data(), sizeof(frag_offsets.front()), n_frag_offsets, fp);
+void j_index_t::dump(std::ostream &fs) {
+    dump_headers(fs, headers);
+    dump_coordinates(fs, value_offsets, q_values);
+    dump_values(fs, max_occ);
+    dump_seq(fs, frag_offsets);
 }
 
-void j_index_t::load(FILE *fp) {
-    load_headers(fp, headers);
-    load_coordinates(fp, value_offsets, q_values);
-    size_t n_frag_offsets = 0;
-    load_values(fp, &max_occ, &n_frag_offsets);
-    frag_offsets.resize(n_frag_offsets);
-    expect(fread(frag_offsets.data(), sizeof(frag_offsets.front()), n_frag_offsets, fp) == n_frag_offsets);
+void j_index_t::load(std::istream &fs) {
+    load_headers(fs, headers);
+    load_coordinates(fs, value_offsets, q_values);
+    load_values(fs, &max_occ);
+    load_seq(fs, frag_offsets);
 }
 
-void c_index_t::dump(FILE *fp) {
-    dump_headers(fp, headers);
-    dump_coordinates(fp, value_offsets, q_values);
-    dump_values(fp, max_occ);
+void c_index_t::dump(std::ostream &fs) {
+    dump_headers(fs, headers);
+    dump_coordinates(fs, value_offsets, q_values);
+    dump_values(fs, max_occ);
 }
 
-void c_index_t::load(FILE *fp) {
-    load_headers(fp, headers);
-    load_coordinates(fp, value_offsets, q_values);
-    load_values(fp, &max_occ);
+void c_index_t::load(std::istream &fs) {
+    load_headers(fs, headers);
+    load_coordinates(fs, value_offsets, q_values);
+    load_values(fs, &max_occ);
 }
 
 template <typename K, typename V>
@@ -260,60 +256,41 @@ static u4 consolidate(cqueue_t<K> &q_keys, cqueue_t<V> &q_values, parlay::sequen
     return occ99;
 }
 
-static void dump_headers(FILE *fp, std::vector<std::string> &headers) {
+static void dump_headers(std::ostream &fs, std::vector<std::string> &headers) {
     size_t n = headers.size();
-    log_info("Dumping %zd refnames..", n);
-    dump_values(fp, n);
-    std::vector<u2> refnamelens(n);
-    for (int i = 0; i < n; ++i) refnamelens[i] = headers[i].size();
-    fwrite(refnamelens.data(), sizeof(u2), n, fp);
-    for (const auto& refname : headers) {
-        n = refname.size();
-        fwrite(refname.c_str(), 1, n, fp);
-    }
+    log_info("Dumping %zd headers..", n);
+    dump_values(fs, n);
+    for (const auto& refname : headers) dump_seq(fs, refname);
     log_info("Done.");
 }
 
-static void load_headers(FILE *fp, std::vector<std::string> &headers) {
+static void load_headers(std::istream &fs, std::vector<std::string> &headers) {
     size_t n;
-    load_values(fp, &n);
-    log_info("Loading %zd refnames..", n);
-    std::vector<u2> refnamelens(n);
-    expect(fread(refnamelens.data(), sizeof(u2), n, fp) == n);
-
-    char buffer[4096];
+    load_values(fs, &n);
+    log_info("Loading %zd headers..", n);
     for (int i = 0; i < n; ++i) {
-        size_t l = refnamelens[i];
-        expect(fread(buffer, 1, l, fp) == l);
-        headers.emplace_back(buffer, l);
+        std::string tmp;
+        load_seq(fs, tmp);
+        headers.emplace_back(tmp);
     }
     log_info("Done.");
 }
 
 template <typename V>
-static void dump_coordinates(FILE *fp, parlay::sequence<u8> &offsets, cqueue_t<V> &values) {
-    size_t n_keys = offsets.size(), n_values = values.size();
+static void dump_coordinates(std::ostream &fs, parlay::sequence<u8> &offsets, cqueue_t<V> &values) {
     log_info("Dumping counts..");
-    fwrite(&n_keys, sizeof(n_keys), 1, fp);
-    fwrite(offsets.data(), sizeof(u8), offsets.size(), fp);
-
+    dump_seq(fs, offsets);
     log_info("Dumping values..");
-    values.dump(fp);
-
+    values.dump(dynamic_cast<ofstream &>(fs));
     log_info("Done.");
 }
 
 template <typename V>
-static void load_coordinates(FILE *fp, parlay::sequence<u8> &offsets, cqueue_t<V> &values) {
-    size_t n_keys, n_values;
+static void load_coordinates(std::istream &fs, parlay::sequence<u8> &offsets, cqueue_t<V> &values) {
     log_info("Loading counts..");
-    expect(fread(&n_keys, sizeof(n_keys), 1, fp) == 1);
-    offsets.resize(n_keys);
-    expect(fread(offsets.data(), sizeof(u8), offsets.size(), fp) == offsets.size());
-
+    load_seq(fs, offsets);
     log_info("Loading values..");
-    values.load(fp);
-
+    values.load(dynamic_cast<ifstream &>(fs));
     log_info("Done.");
 }
 
@@ -471,4 +448,21 @@ std::tuple<const char *, u4, float> cj_index_t::search(parlay::slice<char *, cha
         u4 pos = (hh.top_key - lb) * (frag_len - frag_ovlp_len);
         return std::make_tuple(header.c_str(), pos, presence);
     } else return {"*", 0, 0.0f};
+}
+
+void cj_index_t::dump(std::ostream &fs) {
+    dump_headers(fs, headers);
+    c_val_offsets.serialize(fs);
+    c_values.serialize(fs);
+    dump_values(fs, max_occ);
+    dump_seq(fs, frag_offsets);
+}
+
+void cj_index_t::load(std::istream &fs) {
+    load_headers(fs, headers);
+    c_val_offsets.load(fs);
+    c_values.load(fs);
+    load_values(fs, &max_occ);
+    load_seq(fs, frag_offsets);
+    log_info("Memory usage = %s.", get_memory_usage().c_str());
 }

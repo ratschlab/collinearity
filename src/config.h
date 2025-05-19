@@ -35,38 +35,12 @@
     }
 }
 
-template <class T>
-static void dump_values(FILE *fp, T& var) {
-    fwrite(&var, sizeof(var), 1, fp);
-}
-
-template <class T, typename... Args>
-static void dump_values(FILE *fp, T& var, Args... args) {
-    expect(fwrite(&var, sizeof(var), 1, fp) == 1);
-    dump_values(fp, args...);
-}
-
-template <class T>
-static void load_values(FILE *fp, T *p_var) {
-    expect(fread(p_var, sizeof(*p_var), 1, fp) == 1);
-}
-
-template <class T, typename... Args>
-static void load_values(FILE *fp, T *p_var, Args... args) {
-    expect(fread(p_var, sizeof(*p_var), 1, fp) == 1);
-    load_values(fp, args...);
-}
-
-struct config_t : public argparse::Args {
-    enum phase_t {index, query, both};
-    phase_t phase;
-    std::string idx = "";
-
+struct args_t: public argparse::Args {
     std::string &ref = kwarg("ref", "Path of input reference fasta file. If this is not set, then the --idx must be set.").set_default("");
-    std::string &_idx = kwarg("idx", "Base path to output index file (a .cidx suffix will be added to the path). "
-                                    "If --idx and --qry are not provided, the --ref path is used to dump the index."
-                                    "If this is not set, then the --ref file must be set."
-                                    "This is ignored if --ref path is provided.").set_default("");
+    std::string &idx = kwarg("idx", "Base path to output index file (a .cidx suffix will be added to the path). "
+                                     "If --idx and --qry are not provided, the --ref path is used to dump the index."
+                                     "If this is not set, then the --ref file must be set."
+                                     "This is ignored if --ref path is provided.").set_default("");
     std::string &qry = kwarg("qry", "Path to query fasta. If not provided, then the index is build and dumped to file.").set_default("");
     std::string &out = kwarg("out", "Path to output file. Must be provided if --qry is provided.").set_default("");
     int &k = kwarg("k", "k-mer length").set_default(15);
@@ -74,68 +48,89 @@ struct config_t : public argparse::Args {
     bool &compressed = flag("compressed", "Use a compressed jaccard index.");
     bool &fwd_rev = flag("fr", "Index both forward and reverse strands of the reference.");
     float &presence_fraction = kwarg("pf", "Fraction of k-mers that must be present in an alignment.").set_default(0.1f);
-    std::string &_sort_block_size = kwarg("sort-blksz", "Block size to use in sorting.").set_default("");
+    std::string &sort_block_size = kwarg("sort-blksz", "Block size to use in sorting.").set_default("");
     int &bandwidth = kwarg("bw", "Width of the band in which kmers contained will be considered collinear").set_default(15);
     int &jc_frag_len = kwarg("jc-frag-len", "If --jaccard is set, the sequence are indexed and queried in overlapping fragments of this length.").set_default(180);
     int &jc_frag_ovlp_len = kwarg("jc-frag-ovlp-len", "If --jaccard is set, the sequence are indexed and queried in fragments which overlap this much.").set_default(120);
     bool &dynamic = flag("dynamic", "use a dynamic multi-map");
     int &n_shard_bits = kwarg("num-shard-bits", "log2(x), where x is the number of shards").set_default(10);
-    std::string &poremodel = kwarg("poremodel", "Pore-model file path (currently unused)").set_default("");
+    int &n_threads = kwarg("n_threads", "Number of threads to use (set <=0 to use all cores)").set_default(0);
+};
 
-    bool raw = false;
-    int sigma = 4;
+struct config_t {
+    enum phase_t {index, query, both};
+    phase_t phase;
+    std::string ref, idx, qry, out;
+    int sigma=4, k, bandwidth, jc_frag_len, jc_frag_ovlp_len, n_shard_bits, n_threads;
+    float presence_fraction;
+    bool jaccard, compressed, fwd_rev, dynamic;
     u8 sort_block_size;
 
     config_t() = default;
 
-    static config_t init(int argc, char *argv[]) {
-        auto c = argparse::parse<config_t>(argc, argv);
-
-        if (c.is_valid) {
-            if (c._sort_block_size.empty()) c.sort_block_size = MEMPOOL_BLOCKSZ;
-            else c.sort_block_size = hmsize2bytes(c._sort_block_size);
-            c.sort_block_size = (c.sort_block_size < MEMPOOL_BLOCKSZ)? MEMPOOL_BLOCKSZ : c.sort_block_size;
-            c.idx = c._idx + ".cidx";
-            if (c.ref.empty() && c._idx.empty()) goto PRINT_HELP_AND_EXIT;
-            if (c.ref.empty() && c.qry.empty()) goto PRINT_HELP_AND_EXIT;
-            if (c._idx.empty() && c.qry.empty()) {
-                c.idx = c.ref + ".cidx";
-                c.phase = index;
-            } else if (c.qry.empty()) {
-                c.phase = index;
-            } else if (!c.ref.empty() && !c.qry.empty()) {
-                c.phase = both;
-                c.idx = "";
-                if (c.out.empty()) goto PRINT_HELP_AND_EXIT;
-            } else if (!c._idx.empty() && !c.qry.empty()) {
-                c.phase = query;
-                if (c.out.empty()) goto PRINT_HELP_AND_EXIT;
-            }
-        } else {
-            PRINT_HELP_AND_EXIT:
-            c.help();
-            exit(1);
-        }
-
-        c.print();
-        fprintf(stderr, "Phase: %s\n", c.phase_strs[c.phase]);
-        fprintf(stderr, "Index: %s\n", c.idx.c_str());
-        return c;
+    config_t(int argc, char *argv[], bool validate=true) {
+        auto args = argparse::parse<args_t>(argc, argv);
+        init_from_args(args, validate);
     }
 
-    void dump(FILE *fp) {
-        dump_values(fp, k, jaccard, fwd_rev, presence_fraction, bandwidth, jc_frag_len, jc_frag_ovlp_len, dynamic,
-                    n_shard_bits, raw, sigma, sort_block_size);
+    explicit config_t(std::vector<char*> args, bool validate= false): config_t((int)args.size(), args.data(), validate) {}
+
+    void dump_to(std::ostream &f) {
+        dump_values(f, k, bandwidth, jc_frag_len, jc_frag_ovlp_len, n_shard_bits, n_threads, presence_fraction,
+                    jaccard, compressed, fwd_rev, dynamic, sort_block_size);
     }
 
-    void load(FILE *fp) {
-        load_values(fp, &k, &jaccard, &fwd_rev, &presence_fraction, &bandwidth, &jc_frag_len, &jc_frag_ovlp_len, &dynamic,
-                    &n_shard_bits, &raw, &sigma, &sort_block_size);
+    void load_from(std::istream &f) {
+        load_values(f, &k, &bandwidth, &jc_frag_len, &jc_frag_ovlp_len, &n_shard_bits, &n_threads, &presence_fraction,
+                    &jaccard, &compressed, &fwd_rev, &dynamic, &sort_block_size);
     }
 
 private:
-    const char *phase_strs[3] = {"index", "query", "both"};
-    const char *true_false[2] = {"false", "true"};
+    void init_from_args(args_t &args, bool validate) {
+        ref = args.ref, idx = args.idx, qry = args.qry, out = args.out;
+        k=args.k, bandwidth=args.bandwidth, jc_frag_len=args.jc_frag_len, jc_frag_ovlp_len=args.jc_frag_ovlp_len,
+        n_shard_bits=args.n_shard_bits, n_threads=args.n_threads;
+        presence_fraction=args.presence_fraction;
+        jaccard=args.jaccard, compressed=args.compressed, fwd_rev=args.fwd_rev, dynamic=args.dynamic;
+
+        if (args.n_threads > 0) setenv("PARLAY_NUM_THREADS", std::to_string(args.n_threads).c_str(), 1);
+        if (args.sort_block_size.empty()) sort_block_size = MEMPOOL_BLOCKSZ;
+        else sort_block_size = hmsize2bytes(args.sort_block_size);
+        sort_block_size = (sort_block_size < MEMPOOL_BLOCKSZ)? MEMPOOL_BLOCKSZ : sort_block_size;
+
+        if (validate and !is_valid()) {
+            args.help(); exit(1);
+        }
+        args.print();
+    }
+
+    bool is_valid() {
+        if (!ref.empty() && !qry.empty()) {
+            phase = config_t::phase_t::both;
+            idx = "";
+            if (out.empty()) {
+                log_warn("Missing argument: `out`");
+                return false;
+            }
+            return true;
+        }
+        if (!ref.empty() && qry.empty()) {
+            phase = config_t::phase_t::index;
+            if (idx.empty()) idx = ref;
+            idx = idx + ".cidx";
+            return true;
+        }
+        if (!idx.empty() && !qry.empty()) {
+            phase = config_t::phase_t::query;
+            idx = idx + ".cidx";
+            if (out.empty()) {
+                log_warn("Missing argument: `out`");
+                return false;
+            }
+            return true;
+        }
+        return false;
+    }
 };
 
 #endif //COLLINEARITY_CONFIG_H

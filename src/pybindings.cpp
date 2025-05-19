@@ -10,14 +10,17 @@
 
 namespace py = pybind11;
 
-static vector<const char*> kwargs_to_argv(const py::args& args, const py::kwargs& kwargs,
-                                               vector<string>& arg_strings)  // Store actual argument strings
-{
-    vector<const char*> argv;  // Store pointers to C-style strings
+static inline char* to_c_str(std::string &s) {
+    auto cs = new char[s.size()+1];
+    strcpy(cs, s.c_str());
+    return cs;
+}
+
+static vector<char*> kwargs_to_argv(const py::args& args, const py::kwargs& kwargs) {
+    vector<string> arg_strings;
 
     // First argument is conventionally the program name
     arg_strings.emplace_back("program_name");
-    argv.push_back(arg_strings.back().c_str());
 
     // Handle positional arguments (flags)
     for (auto& arg : args) {
@@ -33,25 +36,13 @@ static vector<const char*> kwargs_to_argv(const py::args& args, const py::kwargs
         else arg_strings.emplace_back("--" + key + "=" + value);
     }
 
-    // Print for demonstration
-//    for (auto &s : arg_strings)
-//        cout << s << '\n';
-//    printf("-----------\n");
-
+    vector<char*> argv;  // Store pointers to C-style strings
     for (auto &s: arg_strings)
-        argv.push_back(s.c_str());
+        argv.push_back(to_c_str(s));
 
     // Now `argc` and `argv.data()` can be used in a function expecting C-style args
     return argv;
 }
-
-struct rf_config_t : config_t {
-    static rf_config_t init(int argc, char *argv[]) {
-        auto c = argparse::parse<rf_config_t>(argc, argv);
-        c.print();
-        return c;
-    }
-};
 
 struct Alignment {
     string ctg;
@@ -98,34 +89,37 @@ struct ResponseGenerator {
 };
 
 struct Index {
-    explicit Index(string &input, const py::args& args, const py::kwargs& kwargs) {
-        auto argv = kwargs_to_argv(args, kwargs, argvec);
-        auto config = argparse::parse<rf_config_t>(argv.size(), argv.data());
-        config.print();
-        if (config._sort_block_size.empty()) config.sort_block_size = MEMPOOL_BLOCKSZ;
-        else config.sort_block_size = hmsize2bytes(config._sort_block_size);
-        config.sort_block_size = (config.sort_block_size < MEMPOOL_BLOCKSZ)? MEMPOOL_BLOCKSZ : config.sort_block_size;
-
-        if (config.jaccard) log_info("Creating Jaccard index");
-        else log_info("Creating a normal index");
-        if (config.fwd_rev) log_info("Indexing both fwd and rev references");
-        else log_info("Indexing fwd references only");
-
-        if (config.jaccard) idx = new j_index_t(config);
-        else idx = new c_index_t(config);
-
+    explicit Index(string &input, const py::args& args, const py::kwargs& kwargs):
+    config(kwargs_to_argv(args, kwargs))
+    {
         if (str_endswith(input.c_str(), ".cidx")) {
-            // This is an index. Load it
-            log_info("Loading index from %s", input.c_str());
-            idx->load(input);
-        } else if (str_endswith(input.c_str(), ".fa") || str_endswith(input.c_str(), ".fasta")) {
-            log_info("Building index from %s", input.c_str());
-            index_fasta(input, idx);
-        } else if (str_endswith(input.c_str(), ".fa.gz") || str_endswith(input.c_str(), ".fasta.gz")) {
-            // gzipped reference. will support it later - todo
-            log_error("This is not implemented yet");
+            idx = load_index(input);
         } else {
-            log_error("Unknown input file format");
+            if (config.jaccard) {
+                if (config.compressed) {
+                    log_info("Creating compressed Jaccard index");
+                    idx = new cj_index_t(config);
+                } else {
+                    log_info("Creating Jaccard index");
+                    idx = new j_index_t(config);
+                }
+            }
+            else {
+                log_info("Creating coordinate index");
+                idx = new c_index_t(config);
+            }
+            if (config.fwd_rev) log_info("Indexing both fwd and rev references");
+            else log_info("Indexing fwd references only");
+
+            if (str_endswith(input.c_str(), ".fa") || str_endswith(input.c_str(), ".fasta")) {
+                log_info("Building index from %s", input.c_str());
+                index_fasta(input, idx);
+            } else if (str_endswith(input.c_str(), ".fa.gz") || str_endswith(input.c_str(), ".fasta.gz")) {
+                // gzipped reference. will support it later - todo
+                log_error("This is not implemented yet");
+            } else {
+                log_error("Unknown input file format for file %s", input.c_str());
+            }
         }
         idx->init_query_buffers();
     }
@@ -133,14 +127,14 @@ struct Index {
     void dump(const string &basename) {
         string filename = basename + ".cidx";
         log_info("Dumping index to %s", filename.c_str());
-        idx->dump(filename);
+        dump_index(filename, config, idx);
         log_info("Done.");
     }
 
     void load(const string &basename) {
         string filename = basename + ".cidx";
         log_info("Loading index from %s", filename.c_str());
-        idx->load(filename);
+        idx = load_index(filename);
         log_info("Done.");
     }
 
@@ -176,6 +170,7 @@ struct Index {
     }
 
 protected:
+    config_t config;
     index_t *idx = nullptr;
     vector<string> argvec;
     bool stream_ready = false;
@@ -183,8 +178,8 @@ protected:
 
 struct DynIndex {
     DynIndex(const py::args& args, const py::kwargs& kwargs) {
-        auto argv = kwargs_to_argv(args, kwargs, argvec);
-        auto config = argparse::parse<config_t>(argv.size(), argv.data());
+        auto argv = kwargs_to_argv(args, kwargs);
+        config_t config(argv);
         idx = new dindex_t(config);
     }
 
@@ -222,67 +217,7 @@ struct DynIndex {
 
 private:
     dindex_t *idx = nullptr;
-    vector<string> argvec;
 };
-
-
-//class StreamProcessor {
-//public:
-//    explicit StreamProcessor(int n_threads = 1) {
-//        for (unsigned int i = 0; i < n_threads; ++i) {
-//            workers.emplace_back([this, i]() { this->worker_loop(i); });
-//        }
-//        ready = true;
-//    }
-//    ~StreamProcessor() {
-//        if (ready) teardown();
-//    }
-//
-//    void teardown() {
-//        if (ready) {
-//            const Request stop(-1, (string &) "", (string &) "");
-//            for (auto &t : workers)
-//                requests.enqueue(stop);
-//            for (auto &t : workers)
-//                if (t.joinable()) t.join();
-//        }
-//        ready = false;
-//    }
-//
-//    ResponseGenerator batch_align(const py::iterator& reads) {
-//        for (auto &read: reads) {
-//            auto request = read.cast<Request>();
-//            requests.enqueue(request);
-//        }
-//        return ResponseGenerator(responses);
-//    }
-//
-//protected:
-//    bool ready;
-//    vector<thread> workers;
-//    mc::ConcurrentQueue<Request> requests;
-//    mc::ConcurrentQueue<Response> responses;
-//
-//    void worker_loop(u4 i) {
-//        const u4 id = i;
-//        bool done = false;
-//        while (!done) {
-//            Request request;
-//            if (requests.try_dequeue(request)) {
-//                if (request.channel < 0) done = true;
-//                else {
-//                    auto seq = request.seq;
-//                    // process request - todo
-//                    auto alignment = Alignment("", true, 0, 0.0f, 0);
-//                    auto response = Response(request.channel, request.id, alignment);
-//                    responses.enqueue(response);
-//                    sitrep("%u - %s", id, seq.substr(0, 10).c_str());
-//                }
-//            } else this_thread::sleep_for(chrono::milliseconds(10));
-//        }
-//    }
-//};
-
 
 // Binding the function to the Python module
 PYBIND11_MODULE(_core, m) {

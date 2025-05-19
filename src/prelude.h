@@ -105,4 +105,53 @@ typedef uint64_t u8;
 
 #define BATCH_SZ 4096
 
+/** I/O utilities */
+
+template <class T>
+static void dump_values(std::ostream &f, T& var) {
+    f.write(reinterpret_cast<const char*>(&var), sizeof(var));
+}
+
+template <class T, typename... Args>
+static void dump_values(std::ostream &f, T& var, Args... args) {
+    f.write(reinterpret_cast<const char*>(&var), sizeof(var));
+    dump_values(f, args...);
+}
+
+template <class T>
+static void load_values(std::istream &f, T *p_var) {
+    f.read(reinterpret_cast<char*>(p_var), sizeof(*p_var));
+}
+
+template <class T, typename... Args>
+static void load_values(std::istream &f, T *p_var, Args... args) {
+    f.read(reinterpret_cast<char*>(p_var), sizeof(*p_var));
+    load_values(f, args...);
+}
+
+template <class Seq>
+static inline void dump_seq(std::ostream &f, Seq &seq) {
+    size_t n = seq.size();
+    dump_values(f, n);
+    f.write(reinterpret_cast<const char*>(seq.data()), n * sizeof(seq[0]));
+}
+
+template <class Seq>
+static inline void load_seq(std::istream &f, Seq &seq) {
+    size_t n = 0;
+    load_values(f, &n);
+    seq.resize(n);
+    f.read(reinterpret_cast<char*>(seq.data()), n * sizeof(seq[0]));
+}
+
+template <typename T>
+static inline void dump_data(std::ofstream &fs, const T *data, size_t n) {
+    fs.write(reinterpret_cast<const char*>(data), n * sizeof(T));
+}
+
+template <typename T>
+static inline void load_data(std::ifstream &fs, T *data, size_t n) {
+    fs.read(reinterpret_cast<char*>(data), n * sizeof(T));
+}
+
 #endif //COLLINEARITY_PRELUDE_H

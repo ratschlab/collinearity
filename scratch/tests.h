@@ -42,5 +42,6 @@ fn(a2);
 fn(a3);
 fn(a4);
 fn(a5);
+fn(a6);
 
 #endif //COLLINEARITY_TESTS_H

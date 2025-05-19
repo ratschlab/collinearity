@@ -209,21 +209,21 @@ public:
     const_iterator end() const { return const_iterator(this, size()); }
     const_iterator it(size_t i) const { return const_iterator(this, i); }
 
-    void dump(FILE *fp) {
-        fwrite(&_size, sizeof(_size), 1, fp);
+    void dump(std::ofstream &fs) {
+        dump_values(fs, _size);
         for (auto &block : blocks)
-            fwrite(block.data, sizeof(T), block.end - block.start, fp);
+            dump_data(fs, block.data, block.end - block.start);
     }
 
-    void load(FILE *fp) {
+    void load(std::ifstream &fs) {
         if (_size) log_error("Loading a file into a non-empty queue is not supported.");
         size_t size;
-        expect(fread(&size, sizeof(size), 1, fp) == 1);
+        load_values(fs, &size);
         _size = size;
         while (size) {
             size_t rc = std::min(MEMPOOL_BLOCKSZ, size);
             blocks.emplace_back();
-            expect(fread(blocks.back().data, sizeof(T), rc, fp) == rc);
+            load_data(fs, blocks.back().data, rc);
             blocks.back().end = rc;
             size -= rc;
         }

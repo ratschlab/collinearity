@@ -140,13 +140,13 @@ public:
      * Dump index into file
      * @param fp file handle which allows writing
      */
-    virtual void dump(FILE *fp) = 0;
+    virtual void dump(std::ostream &f) = 0;
 
     /**
      * Load index from file
      * @param fp file handle that allows reading
      */
-    virtual void load(FILE *fp) = 0;
+    virtual void load(std::istream &f) = 0;
 
 };
 
@@ -171,8 +171,8 @@ public:
     std::tuple<const char*, u4, float> search(parlay::slice<char*, char*> seq) override;
     void init_query_buffers() override;
     void build() override;
-    void dump(FILE *fp) override;
-    void load(FILE *fp) override;
+    void dump(std::ostream &f) override;
+    void load(std::istream &f) override;
 };
 
 /**
@@ -188,6 +188,8 @@ public:
     explicit cj_index_t(config_t &config): j_index_t(config) {}
     void build() override;
     std::tuple<const char*, u4, float> search(parlay::slice<char*, char*> seq) override;
+    void dump(std::ostream &f) override;
+    void load(std::istream &f) override;
 };
 
 class c_index_t : public index_t {
@@ -205,8 +207,8 @@ public:
     std::tuple<const char*, u4, float> search(parlay::slice<char*, char*> seq) override;
     void init_query_buffers() override;
     void build() override;
-    void dump(FILE *fp) override;
-    void load(FILE *fp) override;
+    void dump(std::ostream &f) override;
+    void load(std::istream &f) override;
 };
 
 #define N_SHARDS(n_shard_bits)                  (1<<n_shard_bits)
@@ -311,24 +313,40 @@ public:
     std::tuple<const char*, bool, u4, float> search(std::string &seq);
 };
 
-static void dump_index(std::string filename, config_t &config, index_t *idx) {
-    FILE *fp = fopen(filename.c_str(), "w");
-    if (!fp) log_error("Cannot open file %s because %s.", filename.c_str(), strerror(errno));
-    config.dump(fp);
-    idx->dump(fp);
-    fclose(fp);
+static void dump_index(std::string &filename, config_t &config, index_t *idx) {
+    try {
+        auto fs = std::ofstream(filename, std::ios::binary);
+        config.dump_to(fs);
+        idx->dump(fs);
+        fs.close();
+    } catch (const std::exception& e) {
+        log_error("Could not dump to %s because %s.", filename.c_str(), e.what());
+    }
 }
 
-static index_t * load_index(std::string filename) {
-    index_t *idx;
-    FILE *fp = fopen(filename.c_str(), "r");
-    if (!fp) log_error("Cannot open file %s because %s.", filename.c_str(), strerror(errno));
-    config_t config;
-    config.load(fp);
-    if (config.jaccard) idx = new j_index_t(config);
-    else idx = new c_index_t(config);
-    idx->load(fp);
-    fclose(fp);
+static index_t * load_index(std::string &filename) {
+    index_t *idx = nullptr;
+    try {
+        auto fs = std::ifstream(filename, std::ios::binary);
+        config_t config;
+        config.load_from(fs);
+        if (config.jaccard && config.compressed) {
+            log_info("Loading a compressed jaccard index.");
+            idx = new cj_index_t(config);
+        }
+        else if (config.jaccard) {
+            log_info("Loading a jaccard index.");
+            idx = new j_index_t(config);
+        }
+        else {
+            log_info("Loading a coordinate index.");
+            idx = new c_index_t(config);
+        }
+        idx->load(fs);
+        fs.close();
+    } catch (const std::exception& e) {
+        log_error("Could not load from %s because %s.", filename.c_str(), e.what());
+    }
     return idx;
 }
 
